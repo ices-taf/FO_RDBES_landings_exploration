@@ -1,0 +1,12 @@
+*.Rproj.user
+*.Rhistory
+*.RData
+*.Ruserdata
+*.Rproj
+
+# specific directories
+bootstrap/initial/Intercatch
+bootstrap/data
+data/
+report/
+.Rproj.user
