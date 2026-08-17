@@ -3,6 +3,7 @@
 *.RData
 *.Ruserdata
 *.Rproj
+*.html
 
 # specific directories
 bootstrap/initial/Intercatch
