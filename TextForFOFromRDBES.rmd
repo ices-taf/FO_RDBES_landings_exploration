@@ -1,0 +1,135 @@
+---
+title: "`r Sys.Date()`"
+author: "Youen Vermard"
+date: "2024-04-15"
+output: html_document
+---
+
+```{r specific_options, include = FALSE, cache = FALSE, echo = FALSE, warning = FALSE, message=FALSE, progress = FALSE, verbose = FALSE}
+
+#options(knitr.table.format = "latex")
+
+knitr::opts_chunk$set(echo = FALSE, fig.cap = TRUE)
+library(officedown)
+library(officer)
+library(flextable)
+#library(ggalt)
+library(patchwork)
+library(ggrepel)
+library(tidyr)
+library(scales)
+library(DT)
+
+
+fp <- fp_par(
+  text.align = "center", 
+  padding.bottom = 20, padding.top = 120, 
+  border.bottom = fp_border())
+
+ft <- fp_text(shading.color='#EFEFEF', bold = TRUE)
+
+
+#library(captioner)
+
+### initialise les fonctions pour légender tables et figures
+#tabcap <- captioner(prefix = "Table")
+#figcap <- captioner(prefix = "Figure")
+
+dev_chunck <- FALSE
+cache_credo <- TRUE
+
+
+
+
+
+
+```
+
+<style>
+body {
+text-align: justify}
+</style>
+
+
+
+```{r, results='asis'}
+
+countryList <- unique(nbreVesselTot$CLvesselFlagCountry)
+  for (i in countryList){ 
+    id = i
+    nbreVesselInAreaTmp <- nbreVesselInArea %>% filter(CLvesselFlagCountry ==i)
+    nbreVessel80PercInAreaTmp <- nbreVessel80PercInArea %>% filter(CLvesselFlagCountry ==i)
+    nbreVesselInAreaVSTmp <- nbreVesselInAreaVS %>% filter(CLvesselFlagCountry ==i) %>% ungroup()
+    nbreVesselFTTmp <- nbreVesselFT %>% filter(CLvesselFlagCountry ==i) %>% ungroup()
+    MainSppKGTmp <- MainSppKG %>% filter(CLvesselFlagCountry ==i) %>% ungroup()
+    MainSppEUROTmp <- MainSppEURO %>% filter(CLvesselFlagCountry ==i) %>% ungroup()
+    
+  cat("## ", i, "  \n")
+  cat("In 2022, There are " ,nbreVesselInAreaTmp$nbreVessels, "active vessels" , "  \n")
+  cat("Of which ",nbreVessel80PercInAreaTmp$nbreVessels,"have more than 80% of their landings in the ", Ecoregion,  "  \n")
+
+  cat("  \n")
+  cat("Vessel SIZE ", Ecoregion,  "  \n")
+  
+  cat(nbreVesselInAreaVSTmp %>% filter(CLvesselLengthCategory=="VL0006") %>% select(nbreVessels) %>% as.numeric(), "vessels are under 6m",  "  \n")
+  cat(nbreVesselInAreaVSTmp %>% filter(CLvesselLengthCategory=="VL0608") %>% select(nbreVessels) %>% as.numeric(), "vessels are between 6 and 8m",  "  \n")
+  cat(nbreVesselInAreaVSTmp %>% filter(CLvesselLengthCategory=="VL0810") %>% select(nbreVessels) %>% as.numeric(), "vessels are under 8 and 10m",  "  \n")
+  cat(nbreVesselInAreaVSTmp %>% filter(CLvesselLengthCategory=="VL1012") %>% select(nbreVessels) %>% as.numeric(), "vessels are under 10 and 12m",  "  \n")
+  cat(nbreVesselInAreaVSTmp %>% filter(CLvesselLengthCategory=="VL1215") %>% select(nbreVessels) %>% as.numeric(), "vessels are under 12 and 15m",  "  \n")
+  cat(nbreVesselInAreaVSTmp %>% filter(CLvesselLengthCategory=="VL1518") %>% select(nbreVessels) %>% as.numeric(), "vessels are under 15 and 18m",  "  \n")
+  cat(nbreVesselInAreaVSTmp %>% filter(CLvesselLengthCategory=="VL1824") %>% select(nbreVessels) %>% as.numeric(), "vessels are under 18 and 24m",  "  \n")
+  cat(nbreVesselInAreaVSTmp %>% filter(CLvesselLengthCategory=="VL2440") %>% select(nbreVessels) %>% as.numeric(), "vessels are under 24 and 40m",  "  \n")
+  cat(nbreVesselInAreaVSTmp %>% filter(CLvesselLengthCategory=="VL40XX") %>% select(nbreVessels) %>% as.numeric(), "vessels are over 40m",  "  \n")
+
+  cat("  \n")
+  cat("Vessel Fishing Technics ", Ecoregion,  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="DFN") %>% select(nbreVessels) %>% as.numeric(), "main activity is DFN",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="DTS") %>% select(nbreVessels) %>% as.numeric(), "main activity is DTS",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="TBB") %>% select(nbreVessels) %>% as.numeric(), "main activity is TBB",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="TM") %>% select(nbreVessels) %>% as.numeric(), "main activity is TM",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="DRB") %>% select(nbreVessels) %>% as.numeric(), "main activity is DRB",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="FPO") %>% select(nbreVessels) %>% as.numeric(), "main activity is FPO",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="HOK") %>% select(nbreVessels) %>% as.numeric(), "main activity is HOK",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="PGP") %>% select(nbreVessels) %>% as.numeric(), "main activity is PGP",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="MGO") %>% select(nbreVessels) %>% as.numeric(), "main activity is MGO",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="MGP") %>% select(nbreVessels) %>% as.numeric(), "main activity is MGP",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="PGO") %>% select(nbreVessels) %>% as.numeric(), "main activity is PGO",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="PMP") %>% select(nbreVessels) %>% as.numeric(), "main activity is PMP",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="PS") %>% select(nbreVessels) %>% as.numeric(), "main activity is PS",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="NULL") %>% select(nbreVessels) %>% as.numeric(), "main activity is NULL",  "  \n")
+  cat(nbreVesselFTTmp %>% filter(CLfishingTechnique=="NO") %>% select(nbreVessels) %>% as.numeric(), "main activity is NO",  "  \n")
+  
+  cat("  \n")
+  cat("The ten main species in tonnage in the ", Ecoregion, "are", MainSppKGTmp$CLspeciesFaoCode,  "  \n")
+  cat("  \n")
+  cat("The ten main species in value in the ", Ecoregion, "are", MainSppEUROTmp$CLspeciesFaoCode,  "  \n")
+  
+  
+  cat("  \n")
+  
+#  nbreVesselInAreaVS_alltmp <- nbreVesselInAreaVS_all%>% filter(CLvesselFlagCountry==i)
+#  tmp <- datatable(
+#  nbreVesselInAreaVS_alltmp,
+#  filter = "top",      # Ajoute un filtre sur chaque colonne
+#  options = list(pageLength = 25)
+#  )
+#  print(tmp)
+  
+  vsTmp <- nVessel %>% 
+    filter(CLvesselFlagCountry ==i) %>%
+    select(CLyear, CLvesselFlagCountry, N_Vessel_Total, N_Vessel_80) %>%
+    pivot_longer(
+      cols = -c(CLyear, CLvesselFlagCountry),
+      names_to = "variable",
+      values_to = "value"
+    )
+
+
+print(ggplot(vsTmp, aes(x=CLyear, y=value, fill=variable)) +
+    geom_bar(stat="identity") +
+    labs(title=str_wrap(paste0("Number of vessels in total and having 80% of their activity in the ecoregion: ", i), width = 80), 
+         x="Vessel size category", 
+         y="Number of vessels") +
+    theme_minimal() +
+    theme(legend.position = "none"))#   cat("  \n") # <---------------------------------
+}
