@@ -310,14 +310,89 @@ plot_catch_trends_plotly <- function(
     )
 }
 
+# guilds <- unique(BI$GUILD) %>% na.omit() %>% sort()
 
-p <- plot_catch_trends_plotly(
-  x = BI,
-  type = "Common name",
+# p <- plot_catch_trends_plotly(
+#   x = BI,
+#   type = "Common name",
+#   line_count = 10,
+#   selected_guild = "Pelagic",
+#   dataUpdated = "Data updated: 2024-06-01",
+#   return_data = FALSE,
+#   session = NULL,
+#   ecoregion = "Bay of Biscay and the Iberian Coast"
+# )
+library(plotly)
+library(htmlwidgets)
+library(dplyr)
+
+save_catch_trends_html <- function(
+    data,
+    guilds = NULL,
+    types = "Common name",
+    ecoregion,
+    output_dir = "plots",
+    line_count = 10,
+    dataUpdated = NULL
+) {
+
+  if (is.null(guilds)) {
+    guilds <- data$GUILD %>%
+      unique() %>%
+      na.omit() %>%
+      sort()
+  }
+
+  dir.create("./output", recursive = TRUE, showWarnings = FALSE)
+
+  sanitize_filename <- function(x) {
+    gsub("[^A-Za-z0-9]+", "_", trimws(x))
+  }
+
+  for (type in types) {
+
+    for (guild in guilds) {
+
+      message("Creating: ", type, " | ", guild)
+
+      p <- plot_catch_trends_plotly(
+        x = data,
+        type = type,
+        line_count = line_count,
+        selected_guild = if (type == "Common name") guild else NULL,
+        dataUpdated = dataUpdated,
+        return_data = FALSE,
+        session = NULL,
+        ecoregion = ecoregion
+      )
+
+      file_name <- paste(
+        sanitize_filename(type),
+        sanitize_filename(guild),
+        sanitize_filename(ecoregion),
+        sep = "_"
+      )
+
+      htmlwidgets::saveWidget(
+        widget = p,
+        file = file.path("./output", paste0(file_name, ".html")),
+        selfcontained = TRUE
+      )
+    }
+  }
+}
+
+
+guilds <- unique(BI$GUILD) %>%
+  na.omit() %>%
+  sort()
+
+save_catch_trends_html(
+  data = BI,
+  guilds = guilds,
+  types = c("Common name", "Country", "Fisheries guild"),
+  ecoregion = "Bay of Biscay and the Iberian Coast",
+  output_dir = "landings_html",
   line_count = 10,
-  selected_guild = "Pelagic",
-  dataUpdated = "Data updated: 2024-06-01",
-  return_data = FALSE,
-  session = NULL,
-  ecoregion = "Bay of Biscay and the Iberian Coast"
+  dataUpdated = "Data updated: 2024-06-01"
 )

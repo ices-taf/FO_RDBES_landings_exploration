@@ -675,6 +675,8 @@ normalise_common_name <- function(x) {
 
   # Remove "european" only when it appears as a separate word
   x <- gsub("\\beuropean\\b", "", x)
+  # Remove "european" only when it appears as a separate word
+  x <- gsub("\\bnei\\b", "", x)
 
   # Clean repeated spaces created by removal
   x <- trimws(gsub("\\s+", " ", x))

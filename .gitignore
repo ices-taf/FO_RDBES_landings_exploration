@@ -4,10 +4,13 @@
 *.Ruserdata
 *.Rproj
 *.html
+*.js
+
 
 # specific directories
 bootstrap/initial/Intercatch
 bootstrap/data
-data/
-report/
+data/*
+report/*
+output/*
 .Rproj.user
