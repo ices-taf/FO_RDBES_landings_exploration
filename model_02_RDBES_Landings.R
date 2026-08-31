@@ -44,7 +44,7 @@ head(fao_species_lookup)
 areaBI <- areaBI %>%
   left_join(
     fao_species_lookup %>%
-      select(Alpha3_Code, English_name),
+      select(Alpha3_Code, English_name, Scientific_Name),
     by = c("CLspeciesFaoCode" = "Alpha3_Code")
   )
 
