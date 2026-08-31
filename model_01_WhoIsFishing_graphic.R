@@ -1,6 +1,8 @@
 library(plotly)
 library(dplyr)
 
+
+
 ### total number of vessels by year and flag country
 plot_ly(
   nVessel,
@@ -120,8 +122,8 @@ ggplotly(p, tooltip = "text")
 ### main species by weight for a given year and flag country
 d <- MainSppKG %>%
   filter(
-    CLyear == 2024,
-    CLvesselFlagCountry == "PT"
+    CLyear == 2023,
+    CLvesselFlagCountry == "ES"
   ) %>%
   arrange(weight)
 
