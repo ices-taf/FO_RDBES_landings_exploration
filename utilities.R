@@ -1,28 +1,344 @@
-names(cl.all)
-head(cl.all)
+library(dplyr)
+library(icesTAF)
+library(tidyr)
+library(countrycode)
 
-names(areaBI)
-### build RDBES prelim
-prelim_RDBES <- areaBI %>% 
-    select(
-      CLyear,
-      CLvesselFlagCountry,
-      CLspeciesFaoCode,
-      CLscientificWeight_perVessel,
-      Scientific_Name,
-      English_name.x,
-      CLarea
-    ) %>%
-    rename(
-      YEAR = CLyear,
-      Country = CLvesselFlagCountry,
-      ISO3 = CLvesselFlagCountry,
-    #   SPECIES_NAME = Scientific_Name,
-      COMMON_NAME = English_name.x,
-      Area = CLarea,
-      VALUE = CLscientificWeight_perVessel
+
+#' List of ICES ecoregions
+ecoregions <- c(
+  "Baltic Sea", "Bay of Biscay and the Iberian Coast", "Celtic Seas",
+  "Greater North Sea", "Norwegian Sea", "Icelandic Waters", "Barents Sea",
+  "Greenland Sea", "Faroes", "Oceanic Northeast Atlantic", "Azores"
+)
+
+#' Get acronym for an ICES ecoregion
+#'
+#' Translates a full ICES ecoregion name into the corresponding
+#' three-letter acronym used in the app (e.g. `"Baltic Sea"` → `"BtS"`).
+#'
+#' @param ecoregion A single character string giving the full
+#'   ecoregion name. Must be one of:
+#'   `"Baltic Sea"`, `"Bay of Biscay and the Iberian Coast"`,
+#'   `"Celtic Seas"`, `"Greater North Sea"`, `"Norwegian Sea"`,
+#'   `"Icelandic Waters"`, `"Barents Sea"`, `"Greenland Sea"`,
+#'   `"Faroes"`, `"Oceanic Northeast Atlantic"`, or `"Azores"`.
+#'
+#' @return A character string with the corresponding acronym:
+#'   `"BtS"`, `"BI"`, `"CS"`, `"NrS"`, `"NwS"`, `"IS"`, `"BrS"`,
+#'   `"GS"`, `"FO"`, `"ONA"`, or `"AZ"`.
+#'
+#' @details
+#' If `ecoregion` does not match any of the supported names,
+#' the function raises an error via [base::stop()].
+#'
+#' @examples
+#' get_ecoregion_acronym("Baltic Sea")
+#' get_ecoregion_acronym("Greater North Sea")
+#'
+#' @export
+get_ecoregion_acronym <- function(ecoregion) {
+  switch(ecoregion,
+         "Baltic Sea" = "BtS",
+         "Bay of Biscay and the Iberian Coast" = "BI",
+         "Celtic Seas" = "CS",
+         "Greater North Sea" = "NrS",
+         "Norwegian Sea" = "NwS",
+         "Icelandic Waters" = "IS",
+         "Barents Sea" = "BrS",
+         "Greenland Sea" = "GS",
+         "Faroes" = "FO",
+         "Oceanic Northeast Atlantic" = "ONA",
+         "Azores" = "AZ",
+         stop("Unknown ecoregion")
+  )
+}
+
+
+#' Load ASFIS species reference table
+#'
+#' Reads the local ASFIS ASFIS\_sp CSV file and returns a data frame with
+#' English common name, scientific name, and FAO three-letter species code.
+#'
+#' @details
+#' This function expects the file `./data-raw/ASFIS_sp_2025.csv` to be present
+#' relative to the project root (or package root, if used inside a package).
+#' Only the columns `English_name`, `Scientific_Name`, and `Alpha3_Code`
+#' are kept.
+#'
+#' @return
+#' A data frame (or tibble, if used with dplyr) with three character columns:
+#' \describe{
+#'   \item{English_name}{English common name of the species.}
+#'   \item{Scientific_Name}{Scientific (Latin) name of the species.}
+#'   \item{Alpha3_Code}{FAO three-letter species code.}
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' species <- load_asfis_species()
+#' head(species)
+#' }
+#'
+load_asfis_species <- function() {
+#   url <- "http://www.fao.org/fishery/static/ASFIS/ASFIS_sp.zip"
+    species <- read.csv("./Boot/ASFIS_sp_2025.csv", na.strings = "", stringsAsFactors = FALSE)
+    species <- dplyr::select(species, English_name, Scientific_Name, Alpha3_Code)
+    return(species)
+}
+
+
+#' Load ICES historical catches data
+#'
+#' Reads the local `ICES_historical_catches.csv` file and returns a data frame
+#' with historical catches as provided by ICES.
+#'
+#' @details
+#' This function expects the file `./data-raw/ICES_historical_catches.csv`
+#' to be available relative to the project (or package) root. All columns
+#' in the CSV file are returned unchanged.
+#'
+#' @return
+#' A data frame containing the contents of `ICES_historical_catches.csv`.
+#'
+#' @examples
+#' \dontrun{
+#' hist <- load_historical_catches()
+#' head(hist)
+#' }
+#'
+#' @export
+load_historical_catches<- function(){
+        # url <- "http://ices.dk/data/Documents/CatchStats/HistoricalLandings1950-2010.zip"
+        hist <- read.csv("./Boot/ICES_historical_catches.csv", header = TRUE)#, na.strings = "", stringsAsFactors = FALSE)
+}
+
+
+
+#' Load ICES official catches data
+#'
+#' Reads the local `ICESCatchDataset2006-2023_noConf.csv` file and returns
+#' a data frame with official ICES catch statistics.
+#'
+#' @details
+#' This function expects the file
+#' `./data-raw/ICESCatchDataset2006-2023_noConf.csv` to be available
+#' relative to the project (or package) root. All columns in the CSV file
+#' are returned unchanged.
+#'
+#' @return
+#' A data frame containing the contents of
+#' `ICESCatchDataset2006-2023_noConf.csv`.
+#'
+#' @examples
+#' \dontrun{
+#' official <- load_official_catches()
+#' head(official)
+#' }
+#'
+#' @export
+load_official_catches<- function(){
+        # url <- "http://ices.dk/data/Documents/CatchStats/OfficialNominalCatches.zip"
+        official <- read.csv("./Boot/ICESCatchDataset2006-2023_noConf.csv", header = TRUE)#, na.strings = "", stringsAsFactors = FALSE)
+}
+
+
+
+
+apply_manual_attributions <- function(dat, manual_attributions) {
+
+  if ("COMMON_NAME" %in% names(dat)) {
+    dat$COMMON_NAME <- normalise_common_name(dat$COMMON_NAME)
+    common_name_key <- dat$COMMON_NAME
+  } else {
+    common_name_key <- NULL
+  }
+
+  if (is.null(manual_attributions)) {
+
+    if ("GUILD" %in% names(dat)) {
+      dat$GUILD <- normalise_guild(dat$GUILD)
+    }
+
+    return(dat)
+  }
+
+  required_cols <- c(
+    "Order",
+    "Target column",
+    "Match column",
+    "Match value",
+    "New value / assignment"
+  )
+
+  missing_cols <- setdiff(required_cols, names(manual_attributions))
+
+  if (length(missing_cols) > 0) {
+    stop(
+      "manual_attributions is missing required columns: ",
+      paste(missing_cols, collapse = ", ")
     )
-head(prelim_RDBES)
+  }
+
+  rules <- manual_attributions %>%
+    dplyr::mutate(
+      Order = as.numeric(.data$Order),
+      target_col = trimws(as.character(.data$`Target column`)),
+      match_col  = trimws(as.character(.data$`Match column`)),
+      match_val  = as.character(.data$`Match value`),
+      new_val    = as.character(.data$`New value / assignment`),
+
+      # Precompute normalised versions only once
+      match_val_common = normalise_common_name(.data$match_val),
+      new_val_common   = normalise_common_name(.data$new_val),
+
+      match_val_guild = tolower(trimws(as.character(.data$match_val)))
+    ) %>%
+    dplyr::filter(
+      !is.na(.data$Order),
+      !is.na(.data$target_col),
+      !is.na(.data$match_col),
+      !is.na(.data$match_val),
+      !is.na(.data$new_val),
+      .data$target_col != "",
+      .data$match_col != ""
+    ) %>%
+    dplyr::arrange(.data$Order)
+
+  for (i in seq_len(nrow(rules))) {
+
+    target_col <- rules$target_col[i]
+    match_col  <- rules$match_col[i]
+    match_val  <- rules$match_val[i]
+    new_val    <- rules$new_val[i]
+
+    if (!(target_col %in% names(dat))) {
+      warning(
+        "Skipping rule ",
+        rules$Order[i],
+        ": target column not found: ",
+        target_col
+      )
+      next
+    }
+
+    if (!(match_col %in% names(dat))) {
+      warning(
+        "Skipping rule ",
+        rules$Order[i],
+        ": match column not found: ",
+        match_col
+      )
+      next
+    }
+
+    if (match_col == "COMMON_NAME") {
+
+      idx <- which(
+        !is.na(common_name_key) &
+          common_name_key == rules$match_val_common[i]
+      )
+
+    } else if (match_col == "GUILD") {
+
+      idx <- which(
+        !is.na(dat[[match_col]]) &
+          tolower(trimws(as.character(dat[[match_col]]))) ==
+          rules$match_val_guild[i]
+      )
+
+    } else {
+
+      idx <- which(
+        !is.na(dat[[match_col]]) &
+          trimws(as.character(dat[[match_col]])) ==
+          trimws(as.character(match_val))
+      )
+    }
+
+    if (length(idx) > 0) {
+
+      if (target_col == "COMMON_NAME") {
+        new_val <- rules$new_val_common[i]
+      }
+
+      dat[[target_col]][idx] <- new_val
+
+      # Keep the cached COMMON_NAME key in sync if a rule changes COMMON_NAME
+      if (target_col == "COMMON_NAME") {
+        common_name_key[idx] <- new_val
+      }
+    }
+  }
+
+  if ("GUILD" %in% names(dat)) {
+    dat$GUILD <- normalise_guild(dat$GUILD)
+  }
+
+  if ("COMMON_NAME" %in% names(dat)) {
+    dat$COMMON_NAME <- common_name_key
+  }
+
+  dat
+}
+
+normalise_guild <- function(x) {
+  x <- as.character(x)
+  x <- trimws(x)
+  x_lower <- tolower(x)
+
+  dplyr::case_when(
+    is.na(x) | x == "" ~ "Undefined",
+    x_lower == "undefined" ~ "Undefined",
+    x_lower == "pelagic" ~ "Pelagic",
+    x_lower == "demersal" ~ "Demersal",
+    x_lower == "benthic" ~ "Benthic",
+    x_lower == "elasmobranch" ~ "Elasmobranch",
+    x_lower %in% c("crustacean", "crustaceans", "shellfish") ~ "Shellfish",
+    TRUE ~ x
+  )
+}
+
+
+normalise_common_name <- function(x) {
+  x <- as.character(x)
+  x <- trimws(x)
+  x <- tolower(x)
+
+  # Remove "european" only when it appears as a separate word
+  x <- gsub("\\beuropean\\b", "", x)
+  # Remove "european" only when it appears as a separate word
+  x <- gsub("\\bnei\\b", "", x)
+
+  # Clean repeated spaces created by removal
+  x <- trimws(gsub("\\s+", " ", x))
+
+  x
+}
+
+# -----------------------------
+  # helper functions
+  # -----------------------------
+  clean_name <- function(x) {
+    x <- as.character(x)
+    x <- trimws(x)
+    x <- tolower(x)
+    x
+  }
+  
+  clean_code <- function(x) {
+    x <- as.character(x)
+    x <- trimws(x)
+    x <- toupper(x)
+    x
+  }
+  
+  year_cols <- function(df) {
+    grep("^X\\d{4}$", names(df), value = TRUE)
+  }
+
+
+
+
 format_catches_dev_rdbes <- function(year,
                                ecoregion,
                                historical,
@@ -30,10 +346,7 @@ format_catches_dev_rdbes <- function(year,
                                preliminary = NULL,
                                species_list,
                                sid,
-                               manual_attributions = NULL) {
-  
-
-  
+                               manual_attributions = NULL) {  
   
   
   # -----------------------------
@@ -493,43 +806,60 @@ catch_dat_prelim <- catch_dat_prelim %>%
 
 
 
-catch_dat_rdbes <- format_catches_dev_rdbes(
-          year = as.numeric(format(Sys.Date(), "%Y")),
-          ecoregion = "Bay of Biscay and the Iberian Coast",
-          historical = hist,
-          official = official,
-          preliminary = prelim_RDBES,
-          species_list = species_list,
-          sid = sid,
-          manual_attributions = manual_attributions
-          )
+save_catch_trends_html <- function(
+    data,
+    guilds = NULL,
+    types = "Common name",
+    ecoregion,
+    output_dir = "landings_RDBES_html",
+    line_count = 10,
+    dataUpdated = NULL
+) {
 
-head(catch_dat_rdbes)
-unique(catch_dat_rdbes$ECOREGION)
-unique(catch_dat_rdbes$YEAR)
-
-
-
-write.csv(catch_dat_rdbes, file.path("./output", paste0("RDBES_landings_BI", ".csv")), row.names = FALSE)
+  if (is.null(guilds)) {
+    guilds <- data$GUILD %>%
+      unique() %>%
+      na.omit() %>%
+      sort()
+  }
 
 
-plot <- plot_catch_trends_plotly_rdbes(
-  x = catch_dat_rdbes,
-  type = "Country",
-  line_count = 10,
-  selected_guild = NULL,
-  dataUpdated = "Data updated: 2024-06-20",
-  return_data = FALSE,
-  session = NULL,
-  ecoregion = "Bay of Biscay and the Iberian Coast"
-)
+sanitize_filename <- function(x) {
+    gsub("[^A-Za-z0-9]+", "_", trimws(x))
+  }
 
-#saving plot
-htmlwidgets::saveWidget(
-        widget = plot,
-        file = file.path("./output", paste0("RDBES_landings_Country", ".html")),
+  for (type in types) {
+
+    for (guild in guilds) {
+
+      message("Creating: ", type, " | ", guild)
+
+      p <- plot_catch_trends_plotly_rdbes(
+        x = data,
+        type = type,
+        line_count = line_count,
+        selected_guild = if (type == "Common name") guild else NULL,
+        dataUpdated = dataUpdated,
+        return_data = FALSE,
+        session = NULL,
+        ecoregion = ecoregion
+      )
+
+      file_name <- paste(
+        sanitize_filename(type),
+        sanitize_filename(guild),
+        sanitize_filename(ecoregion),
+        sep = "_"
+      )
+
+      htmlwidgets::saveWidget(
+        widget = p,
+        file = file.path("./output/landings_RDBES_html", paste0(file_name, ".html")),
         selfcontained = TRUE
       )
+    }
+  }
+}
 
 ### plotting function for catch trends
 plot_catch_trends_plotly_rdbes <- function(
