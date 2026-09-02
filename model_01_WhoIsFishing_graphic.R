@@ -1,10 +1,10 @@
 library(plotly)
 library(dplyr)
 
-
+dir.create("./output/who_is_fishing", showWarnings = FALSE, recursive = TRUE)
 
 ### total number of vessels by year and flag country
-plot_ly(
+p <- plot_ly(
   nVessel,
   x = ~CLyear,
   y = ~N_Vessel_Total,
@@ -18,8 +18,12 @@ plot_ly(
   ),
   hoverinfo = "text"
 )
-
-
+file_name <- "nVessel_total_by_year_flagCountry"
+htmlwidgets::saveWidget(
+        widget = p,
+        file = file.path("./output/who_is_fishing", paste0(file_name, ".html")),
+        selfcontained = TRUE
+      )
 
 # nVessel_long <- nVessel %>%
 #   tidyr::pivot_longer(
@@ -49,9 +53,9 @@ vessel_size_plot <- nbreVesselInAreaVS_all %>%
   ungroup()
 
   d <- vessel_size_plot %>%
-  filter(CLyear == 2025)
+  filter(CLyear == 2024)
 
-plot_ly(
+p <- plot_ly(
   d,
   x = ~share,
   y = ~CLvesselFlagCountry,
@@ -71,6 +75,13 @@ plot_ly(
     xaxis = list(title = "% of fleet", range = c(0,100)),
     yaxis = list(title = "")
   )
+
+file_name <- "vessel_sizeCategory_by_flagCountry_in_2024"
+htmlwidgets::saveWidget(
+        widget = p,
+        file = file.path("./output/who_is_fishing", paste0(file_name, ".html")),
+        selfcontained = TRUE
+      )
 
 ### heatmap of fishing technique by flag country and year
 # One warning from your own script is important here: 
@@ -116,31 +127,51 @@ p <- ggplot(
         fill = "% fleet"
     )
 
-ggplotly(p, tooltip = "text")
-
+p2 <-ggplotly(p, tooltip = "text")
+file_name <- "fishing_technique_by_flagCountry_in_2024"
+htmlwidgets::saveWidget(
+        widget = p2,
+        file = file.path("./output/who_is_fishing", paste0(file_name, ".html")),
+        selfcontained = TRUE
+      )
 
 ### main species by weight for a given year and flag country
 d <- MainSppKG %>%
   filter(
-    CLyear == 2023,
-    CLvesselFlagCountry == "ES"
+    CLyear == 2024,
+    CLvesselFlagCountry == "BE"
   ) %>%
   arrange(weight)
 
-plot_ly(
+head(species_list)
+
+MainSppKG_withspecies <- left_join(
   d,
+  species_list,
+  by = c("CLspeciesFaoCode" = "Alpha3_Code")
+)
+head(MainSppKG_withspecies)
+p <- plot_ly(
+  MainSppKG_withspecies,
   x = ~weight,
   y = ~reorder(CLspeciesFaoCode, weight),
   type = "bar",
   orientation = "h",
   text = ~paste0(
-    "<b>", CLspeciesFaoCode, "</b>",
+    "<b>", English_name, " (", Scientific_Name, ")</b>",
     "<br>Weight: ", scales::comma(weight),
     "<br>Value: €", scales::comma(value)
   ),
   hoverinfo = "text"
 )
 
+file_name <- "main_species_by_weight_for_BE_in_2024"
+htmlwidgets::saveWidget(
+        widget = p,
+        file = file.path("./output/who_is_fishing", paste0(file_name, ".html")),
+        selfcontained = TRUE
+      )
+### this need rechecking
 ### main species by value for a given year and flag country
 ### give option to select either landed weight or landed value
 d <- MainSppEURO %>%
@@ -150,13 +181,32 @@ d <- MainSppEURO %>%
   ) %>%
   arrange(value)
 
-plot_ly(
+MainSppEURO_withspecies <- left_join(
   d,
+  species_list,
+  by = c("CLspeciesFaoCode" = "Alpha3_Code")
+)
+head(MainSppEURO_withspecies)
+
+p <- plot_ly(
+  MainSppEURO_withspecies,
   x = ~value,
   y = ~reorder(CLspeciesFaoCode, value),
   type = "bar",
-  orientation = "h"
+  orientation = "h",
+  text = ~paste0(
+    "<b>", English_name, " (", Scientific_Name, ")</b>",
+    "<br>Weight: ", scales::comma(weight),
+    "<br>Value: €", scales::comma(value)
+  )
 )
+
+file_name <- "main_species_by_value_for_PT_in_2024"
+htmlwidgets::saveWidget(
+        widget = p,
+        file = file.path("./output/who_is_fishing", paste0(file_name, ".html")),
+        selfcontained = TRUE
+      )
 
 
 ### new object, combination of MainSppKG + MainSppEURO
