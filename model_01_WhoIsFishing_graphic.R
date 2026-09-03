@@ -4,21 +4,50 @@ library(dplyr)
 dir.create("./output/who_is_fishing", showWarnings = FALSE, recursive = TRUE)
 
 ### total number of vessels by year and flag country
+# p <- plot_ly(
+#   nVessel,
+#   x = ~CLyear,
+#   y = ~N_Vessel_Total,
+#   color = ~CLvesselFlagCountry,
+#   type = "scatter",
+#   mode = "lines+markers",
+#   text = ~paste0(
+#     "<b>", CLvesselFlagCountry, "</b>",
+#     "<br>Year: ", CLyear,
+#     "<br>Vessels: ", N_Vessel_Total
+#   ),
+#   hoverinfo = "text"
+# )
+nVessel_long <- nVessel %>%
+  pivot_longer(
+    cols = c(N_Vessel_Total, N_Vessel_80),
+    names_to = "Measure",
+    values_to = "N_Vessels"
+  ) %>%
+  mutate(
+    Measure = recode(
+      Measure,      
+      N_Vessel_80 = "Vessels accounting for 80% of landings",
+      N_Vessel_Total = "Total vessels"
+    )
+  )
+
 p <- plot_ly(
-  nVessel,
+  nVessel_long,
   x = ~CLyear,
-  y = ~N_Vessel_Total,
+  y = ~N_Vessels,
   color = ~CLvesselFlagCountry,
+  linetype = ~Measure,
   type = "scatter",
   mode = "lines+markers",
   text = ~paste0(
     "<b>", CLvesselFlagCountry, "</b>",
     "<br>Year: ", CLyear,
-    "<br>Vessels: ", N_Vessel_Total
+    "<br>", Measure, ": ", N_Vessels
   ),
   hoverinfo = "text"
 )
-file_name <- "nVessel_total_by_year_flagCountry"
+file_name <- "nVessel_total&80%_by_year&_flagCountry"
 htmlwidgets::saveWidget(
         widget = p,
         file = file.path("./output/who_is_fishing", paste0(file_name, ".html")),
