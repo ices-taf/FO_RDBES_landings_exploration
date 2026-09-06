@@ -292,7 +292,9 @@ plot_discard_trends_app_plotly <- function(x, year, return_data = FALSE, ecoregi
     text = ~ paste(
       "Guild:", FisheriesGuild,
       "<br>Year:", Year,
-        "<br>Discard rate:", scales::percent(guildRate, accuracy = 0.01)
+      "<br>Discard rate:", scales::percent(guildRate, accuracy = 0.01),
+      "<br>Landings (1000 t):", scales::number(guildLandings, accuracy = 0.01, big.mark = ","),
+      "<br>Discards (1000 t):", scales::number(guildDiscards, accuracy = 0.01, big.mark = ",")
     )
   )
 
