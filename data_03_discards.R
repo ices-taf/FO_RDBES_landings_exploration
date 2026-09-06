@@ -191,7 +191,7 @@ sum(elasmobranch_discards$Discards, na.rm = TRUE)
 
 
 
-
+### guildRate = guildDiscards / (guildLandings + guildDiscards)
 plot_discard_trends_app_plotly <- function(x, year, return_data = FALSE, ecoregion = NULL) {
   
   # Check for non-numeric Year values and warn if any NAs are introduced
@@ -233,7 +233,8 @@ plot_discard_trends_app_plotly <- function(x, year, return_data = FALSE, ecoregi
   df <- x %>%
     dplyr::mutate(Year = year_numeric) %>%
     dplyr::filter(!is.na(Year)) %>%
-    dplyr::filter(Year %in% seq(2011, year - 1))
+    dplyr::filter(Year %in% seq(2011, year - 1)) %>% 
+    dplyr::filter(!is.na(FisheriesGuild))
 
   df2 <- tidyr::expand(df, Year, tidyr::nesting(StockKeyLabel, FisheriesGuild))
   df <- dplyr::left_join(df, df2, by = c("Year", "StockKeyLabel", "FisheriesGuild"))
@@ -272,8 +273,7 @@ plot_discard_trends_app_plotly <- function(x, year, return_data = FALSE, ecoregi
       .groups = "drop"
     ) %>%
     dplyr::mutate(guildRate = guildDiscards / (guildLandings + guildDiscards)) %>%
-    tidyr::pivot_longer(cols = guildRate, names_to = "variable", values_to = "value") %>%
-    dplyr::filter(!is.na(value))
+    dplyr::filter(!is.na(guildRate))
 
   if (return_data) {
     return(df5)
@@ -282,7 +282,7 @@ plot_discard_trends_app_plotly <- function(x, year, return_data = FALSE, ecoregi
   p <- plotly::plot_ly(
     data = df5,
     x = ~Year,
-    y = ~value,
+    y = ~guildRate,
     color = ~FisheriesGuild,
     colors = "Set2",
     type = "scatter",
@@ -292,7 +292,7 @@ plot_discard_trends_app_plotly <- function(x, year, return_data = FALSE, ecoregi
     text = ~ paste(
       "Guild:", FisheriesGuild,
       "<br>Year:", Year,
-       "<br>Discard rate:", scales::percent(value, accuracy = 0.01)
+        "<br>Discard rate:", scales::percent(guildRate, accuracy = 0.01)
     )
   )
 
@@ -347,5 +347,13 @@ plot_discard_trends_app_plotly <- function(x, year, return_data = FALSE, ecoregi
   return(p)
 }
 
-
+unique(discard_base_data$FisheriesGuild)
 plot_discard_trends_app_plotly(discard_base_data, 2026)
+
+plot_discard_trends_app_plotly(
+  discard_base_data,
+  2026,
+  return_data = TRUE
+) %>%
+  filter(FisheriesGuild == "pelagic") %>%
+  select(Year, guildLandings, guildDiscards, guildRate)
