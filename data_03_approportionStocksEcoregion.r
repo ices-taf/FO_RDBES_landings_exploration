@@ -1,11 +1,12 @@
 
-
-load("./data/extendedRDBES.RData")
 Ecoregion = "Bay of Biscay and the Iberian Coast"
 
 areaAll <- get_csquare(ecoregion = Ecoregion, convert2sf = TRUE)
 area <- unique(areaAll$stat_rec)
 
+
+### load extended RDBES 
+load("./data/extendedRDBES.RData")
 
 dat <- cl.all2 %>% 
     summarise(.by = c(CLyear, CLarea, CLstatisticalRectangle,
@@ -15,9 +16,9 @@ dat <- cl.all2 %>%
 dat$CLdiv <- sapply(strsplit(dat$CLarea, ".", fixed = TRUE), \(z) paste(z[1:2], collapse = "."))
 
 
-refStk <- read_excel("./Boot/export_referentiel_stocks-scientifiques_20250327.xlsx") ## referentiel IFREMER SACROIS - fonctionne pour stocks CIEM et locaux
-refStk <- refStk %>%
-    select(CLspeciesFaoCode = TAXON_GROUP_LABEL, 
+### import stock referential from IFREMER. Should use ICES ref but only working 
+### for stocks that are not defined using stat rectangles. The IFREMER referential is more complete.
+refStk <- read_excel("./Boot/export_referentiel_stocks-scientifiques_20250327.xlsx") 
             FISHERY_ORGP_LABEL, 
             REG_AREA_TRANS_ZONE_FAO, 
             REG_AREA_LOCATION_LEVEL_FK) %>%
