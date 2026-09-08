@@ -57,16 +57,27 @@ text-align: justify}
 countryList <- unique(nbreVesselTot$CLvesselFlagCountry)
   for (i in countryList){ 
     id = i
-    nbreVesselInAreaTmp <- nbreVesselInArea %>% filter(CLvesselFlagCountry ==i)
-    nbreVessel80PercInAreaTmp <- nbreVessel80PercInArea %>% filter(CLvesselFlagCountry ==i)
-    nbreVesselInAreaVSTmp <- nbreVesselInAreaVS %>% filter(CLvesselFlagCountry ==i) %>% ungroup()
-    nbreVesselFTTmp <- nbreVesselFT %>% filter(CLvesselFlagCountry ==i) %>% ungroup()
-    MainSppKGTmp <- MainSppKG %>% filter(CLvesselFlagCountry ==i) %>% ungroup()
-    MainSppEUROTmp <- MainSppEURO %>% filter(CLvesselFlagCountry ==i) %>% ungroup()
+    minYear = min(nbreVesselInArea_all$CLyear)
+    maxYear = max(nbreVesselInArea_all$CLyear)
+
+    nbreVesselInAreaTmpMinY <- nbreVesselInArea_all %>% filter(CLvesselFlagCountry ==i & CLyear == minYear)
+    nbreVesselInAreaTmpMaxY <- nbreVesselInArea_all %>% filter(CLvesselFlagCountry ==i & CLyear == maxYear)
+
+    nbreVessel80PercInAreaTmp <- nbreVessel80PercInArea_all %>% 
+        filter(CLvesselFlagCountry ==i & CLyear == maxYear)
+    nbreVesselInAreaVSTmp <- nbreVesselInAreaVS_all %>% 
+        filter(CLvesselFlagCountry ==i & CLyear == maxYear) %>% ungroup()
+    nbreVesselFTTmp <- nbreVesselFT_all %>% 
+        filter(CLvesselFlagCountry ==i & CLyear == maxYear) %>% ungroup()
+    MainSppKGTmp <- MainSppKG %>% 
+        filter(CLvesselFlagCountry ==i & CLyear == maxYear) %>% ungroup()
+    MainSppEUROTmp <- MainSppEURO %>% 
+        filter(CLvesselFlagCountry ==i & CLyear == maxYear) %>% ungroup()
     
   cat("## ", i, "  \n")
-  cat("In 2022, There are " ,nbreVesselInAreaTmp$nbreVessels, "active vessels" , "  \n")
-  cat("Of which ",nbreVessel80PercInAreaTmp$nbreVessels,"have more than 80% of their landings in the ", Ecoregion,  "  \n")
+  cat("In" , minYear , ", There are " , nbreVesselInAreaTmpMinY$N_Vessel_Total, "active vessels" , "  \n")
+  cat("In" , maxYear , ", There are " , nbreVesselInAreaTmpMaxY$N_Vessel_Total, "active vessels" , "  \n")
+  cat("Of which ",nbreVessel80PercInAreaTmp$N_Vessel_80,"have more than 80% of their landings in the ", Ecoregion,  "  \n")
 
   cat("  \n")
   cat("Vessel SIZE ", Ecoregion,  "  \n")
