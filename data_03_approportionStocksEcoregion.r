@@ -100,3 +100,30 @@ aes(x = CLyear, y = ShareLandingsInEcoregion, color = CS)) +
          y = "Share of Landings (%)") +
     theme_minimal()
 
+
+
+library(icesVocab)
+detail <- getCodeDetail("ICES_StockCode", code = "nep.fu.31")
+area <- detail$children %>% filter(Key == "ICES_Area")
+detail$children
+getCodeList("ICES_Area", code = "27.4.a")
+
+
+
+library(icesSD)
+sid <- getSD(year = 2026)
+sid <- sid %>% select(StockKeyLabel,SpeciesScientificName,SpeciesCommonName)
+names(sid)
+stock_codes <- c("nep.fu.31", "cod.27.7e-k", "had.27.46a20")
+
+areas_by_stock <- lapply(sid$StockKeyLabel, function(code) {
+  d <- getCodeDetail("ICES_StockCode", code = code)
+
+  tibble(
+    StockKeyLabel = code,
+    ICES_Area = d$children$codes$Key[d$children$code_types$Key == "ICES_Area"]
+  )
+}) %>%
+  bind_rows()
+
+areas_by_stock
