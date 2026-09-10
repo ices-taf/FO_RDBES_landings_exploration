@@ -1,4 +1,4 @@
-
+library(icesVMS)
 Ecoregion = "Bay of Biscay and the Iberian Coast"
 
 areaAll <- get_csquare(ecoregion = Ecoregion, convert2sf = TRUE)
@@ -18,31 +18,38 @@ dat$CLdiv <- sapply(strsplit(dat$CLarea, ".", fixed = TRUE), \(z) paste(z[1:2], 
 
 ### import stock referential from IFREMER. Should use ICES ref but only working 
 ### for stocks that are not defined using stat rectangles. The IFREMER referential is more complete.
-refStk <- read_excel("./Boot/export_referentiel_stocks-scientifiques_20250327.xlsx") 
-            FISHERY_ORGP_LABEL, 
+refStk <- readxl::read_excel("./Boot/export_referentiel_stocks-scientifiques_20250327.xlsx") 
+head(refStk)
+refStk <- refStk %>%
+    select(FISHERY_ORGP_LABEL, 
             REG_AREA_TRANS_ZONE_FAO, 
-            REG_AREA_LOCATION_LEVEL_FK) %>%
+            REG_AREA_LOCATION_LEVEL_FK,
+            TAXON_GROUP_LABEL) %>%
     filter(!is.na(FISHERY_ORGP_LABEL)) 
 refStk1 <- refStk %>% filter(REG_AREA_LOCATION_LEVEL_FK == 110)
 refStk2 <- refStk %>% filter(REG_AREA_LOCATION_LEVEL_FK == 111)
 refStk3 <- refStk %>% filter(REG_AREA_LOCATION_LEVEL_FK == 113)
 
-
+names()
+unique(refStk1$REG_AREA_TRANS_ZONE_FAO)
+unique(refStk2$REG_AREA_TRANS_ZONE_FAO)
+unique(refStk3$REG_AREA_TRANS_ZONE_FAO)
+unique(dat$CLdiv)
 test <- dat %>% 
-    left_join(refStk1, by = c("CLspeciesFaoCode", 
+    left_join(refStk1, by = c("CLspeciesFaoCode" = "TAXON_GROUP_LABEL",
     "CLdiv" = "REG_AREA_TRANS_ZONE_FAO")) %>%
     select(-REG_AREA_LOCATION_LEVEL_FK)
 
 sum(dat$CLscientificWeight)/sum(test$CLscientificWeight)
 
 test <- test %>% 
-    left_join(refStk2, by = c("CLspeciesFaoCode", 
+    left_join(refStk2, by = c("CLspeciesFaoCode" = "TAXON_GROUP_LABEL",
     "CLarea" = "REG_AREA_TRANS_ZONE_FAO"))  %>%
     select(-REG_AREA_LOCATION_LEVEL_FK)
 sum(dat$CLscientificWeight)/sum(test$CLscientificWeight)
 
 test <- test %>% 
-    left_join(refStk3, by = c("CLspeciesFaoCode",
+    left_join(refStk3, by = c("CLspeciesFaoCode" = "TAXON_GROUP_LABEL",
     "CLstatisticalRectangle" = "REG_AREA_TRANS_ZONE_FAO")) %>%
     select(-REG_AREA_LOCATION_LEVEL_FK)
 sum(dat$CLscientificWeight)/sum(test$CLscientificWeight)
@@ -83,7 +90,7 @@ test2 <- test %>%
 test2 %>% filter(CLyear == 2024 & fishstock == "mac.27.nea") 
 
 write.csv(test2, file = "./output/data_03_shareLandingsInEcoregion.csv", row.names = FALSE)
-
+library(ggplot2)
 ggplot(test2 %>% filter(fishstock == "mac.27.nea"), 
 aes(x = CLyear, y = ShareLandingsInEcoregion, color = CS)) +
     geom_line() +

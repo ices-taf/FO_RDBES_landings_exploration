@@ -293,7 +293,8 @@ plot_GES_pies <- function(x, y, return_data = FALSE, width_px = 800) {
   df2[is.na(df2)] <- 0
 
   df3 <- dplyr::filter(y, StockKeyLabel %in% df_stock$StockKeyLabel) |>
-    dplyr::mutate(CATCH = ifelse(is.na(Catches) & !is.na(Landings), Landings, Catches)) |>
+    # dplyr::mutate(CATCH = ifelse(is.na(Catches) & !is.na(Landings), Landings, Catches)) |>
+    dplyr::mutate(CATCH = ifelse(is.na(Catches_in_ecoregion) & !is.na(Landings_in_ecoregion), Landings_in_ecoregion, Catches_in_ecoregion)) |>
     dplyr::select(StockKeyLabel, CATCH)
 
   df4 <- dplyr::left_join(df_stock, df3); df4[is.na(df4)] <- 0
@@ -599,6 +600,150 @@ plot_GES_pies_plotly <- function(x, y, return_data = FALSE) {
 }
 
 
+#' Total-stock Plotly pies with hover showing the top 5 stocks by catch
+#'
+#' This mirrors the existing plot_GES_pies_plotly layout but aggregates all
+#' fisheries guilds together and reports only the largest stock contributions
+#' in the hover text.
+plot_GES_pies_plotly2 <- function(x, y, return_data = FALSE) {
+
+  colList <- c(
+    "GREEN" = "#00B26D",
+    "GREY" = "#d3d3d3",
+    "ORANGE" = "#ff7f00",
+    "RED" = "#d93b1c",
+    "qual_RED" = "#d93b5c",
+    "qual_GREEN" = "#00B28F"
+  )
+
+  df_stock <- dplyr::filter(x, lineDescription == "Maximum sustainable yield") |>
+    dplyr::select(StockKeyLabel, FisheriesGuild, FishingPressure, StockSize) |>
+    tidyr::gather(Variable, Colour, FishingPressure:StockSize, factor_key = TRUE)
+
+  if ("Landings_in_ecoregion" %in% names(y)) {
+    df3 <- dplyr::filter(y, StockKeyLabel %in% df_stock$StockKeyLabel) |>
+      dplyr::mutate(
+        CATCH = dplyr::coalesce(
+          Landings_in_ecoregion,
+          ifelse(is.na(Catches) & !is.na(Landings), Landings, Catches)
+        )
+      ) |>
+      dplyr::select(StockKeyLabel, CATCH)
+  } else {
+    df3 <- dplyr::filter(y, StockKeyLabel %in% df_stock$StockKeyLabel) |>
+      dplyr::mutate(CATCH = ifelse(is.na(Catches) & !is.na(Landings), Landings, Catches)) |>
+      dplyr::select(StockKeyLabel, CATCH)
+  }
+
+  df_long <- dplyr::left_join(df_stock, df3, by = "StockKeyLabel")
+  df_long[is.na(df_long)] <- 0
+
+  detail <- df_long |>
+    dplyr::group_by(Variable, Colour, StockKeyLabel) |>
+    dplyr::summarise(CATCH = sum(CATCH, na.rm = TRUE), .groups = "drop") |>
+    dplyr::group_by(Variable, Colour) |>
+    dplyr::arrange(dplyr::desc(CATCH), .by_group = TRUE) |>
+    dplyr::slice_head(n = 5) |>
+    dplyr::summarise(
+      breakdown_html = paste0(
+        "<b>Top 5 stocks</b><br>",
+        paste0(
+          StockKeyLabel, ": ", scales::comma(round(CATCH)), " t",
+          collapse = "<br>"
+        )
+      ),
+      .groups = "drop"
+    )
+
+  df4 <- df_long |>
+    dplyr::group_by(Variable, Colour) |>
+    dplyr::summarise(Catch = sum(CATCH, na.rm = TRUE), .groups = "drop") |>
+    dplyr::left_join(detail, by = c("Variable", "Colour")) |>
+    dplyr::mutate(
+      Variable = plyr::revalue(Variable,
+                               c("FishingPressure" = "Fishing Pressure",
+                                 "StockSize"       = "Stock Size")),
+      Value2 = as.integer(Catch / 1000)
+    ) |>
+    dplyr::filter(Catch > 0)
+
+  if (isTRUE(return_data)) {
+    return(df4)
+  }
+
+  variables <- unique(df4$Variable)
+  p <- plotly::plot_ly()
+  legend_colors <- intersect(names(colList), unique(as.character(df4$Colour)))
+
+  for (col in legend_colors) {
+    p <- plotly::add_trace(
+      p,
+      type = "scatter", mode = "markers", inherit = FALSE,
+      x = NA_real_, y = NA_real_,
+      marker = list(color = colList[[col]], size = 10),
+      name = col, legendgroup = col, showlegend = TRUE,
+      hoverinfo = "skip"
+    )
+  }
+
+  annotations <- list()
+  pie_domains <- list(
+    list(x = c(0.08, 0.92), y = c(0.55, 0.98)),
+    list(x = c(0.08, 0.92), y = c(0.05, 0.48))
+  )
+
+  for (i in seq_along(variables)) {
+    sub <- dplyr::filter(df4, Variable == variables[i])
+    domain <- pie_domains[[i]]
+
+    p <- plotly::add_trace(
+      p,
+      data = sub,
+      type = "pie",
+      labels = ~Colour,
+      values = ~Value2,
+      domain = domain,
+      marker = list(colors = colList[as.character(sub$Colour)],
+                    line = list(color = "#FFFFFF", width = 1)),
+      textinfo = "label+percent",
+      hoverinfo = "text",
+      text = ~paste0(
+        "<b>", Colour, "</b><br>",
+        "Catch: ", Value2, "k t<br><br>",
+        breakdown_html
+      ),
+      sort = FALSE,
+      hole = 0.25,
+      showlegend = FALSE
+    )
+
+    annotations[[length(annotations) + 1]] <- list(
+      x = 0.5, y = domain$y[[2]] + 0.02,
+      xref = "paper", yref = "paper",
+      text = paste0("<b>", variables[i], "</b>"),
+      showarrow = FALSE, font = list(size = 13), xanchor = "center"
+    )
+  }
+
+  annotations[[length(annotations) + 1]] <- list(
+    x = 1, y = 0, xref = "paper", yref = "paper",
+    xanchor = "right", yanchor = "top", showarrow = FALSE,
+    text = paste0("ICES Stock Assessment Database, ",
+                  format(Sys.Date(), "%d-%b-%y"), ". ICES, Copenhagen"),
+    font = list(size = 10)
+  )
+
+  plotly::layout(
+    p,
+    legend = list(title = list(text = "<b>Status:</b>")),
+    margin = list(l = 40, r = 40, t = 50, b = 70),
+    annotations = annotations,
+    showlegend = TRUE
+  ) |>
+    plotly::config(displayModeBar = FALSE)
+}
+
+
 getStatusWebService <- function(Ecoregion, sid) {
         EcoregionCode <- get_ecoregion_acronym(Ecoregion)
         
@@ -688,9 +833,12 @@ format_sag_status_new <- function(df,sag) {
 clean_status <- format_sag_status_new(getStatusWebService("Bay of Biscay and the Iberian Coast", sid), sag)
 
 
-plot_GES_pies(clean_status, catch_current)
-p <- plot_GES_pies_plotly(clean_status, catch_current)
-file_name <- "GES_pies_catches_updated_BI"
+plot_GES_pies(clean_status, catch_current_adj)
+p4 <- plot_GES_pies(clean_status, catch_current_adj)
+
+test <- catch_current_adj %>% filter(StockKeyLabel == "mac.27.nea")
+p <- plot_GES_pies_plotly(clean_status, catch_current_adj)
+file_name <- "GES_pies_catches_adjustedRDBES_BI"
 htmlwidgets::saveWidget(
         widget = p,
         file = file.path("./output", paste0(file_name, ".html")),
@@ -698,3 +846,176 @@ htmlwidgets::saveWidget(
       )
 head(clean_status)
 head(catch_current)
+
+p <- plot_GES_pies(clean_status, catch_current_adj)
+p2 <- plot_GES_pies_plotly2(clean_status, catch_current_adj)
+
+
+plot_CLD_bar_app <- function(x, guild, return_data = FALSE) {
+  # --- Filter by guild
+  df <- if (identical(guild, "All")) x else dplyr::filter(x, FisheriesGuild %in% guild)
+
+   # --- Ensure proxy flags exist  
+  if (!"F_proxy" %in% names(df)) warning("Missing 'F_proxy' column in input data. This may indicate an upstream data issue.")  
+  if (!"B_proxy" %in% names(df)) warning("Missing 'B_proxy' column in input data. This may indicate an upstream data issue.")  
+
+
+  # --- Build 'total' per stock (max of Catches/Landings across time)
+  df <- df %>%
+    dplyr::group_by(StockKeyLabel) %>%
+    dplyr::mutate(
+    #   total = ifelse(all(is.na(Catches) & is.na(Landings)), NA,    
+                    #  max(Catches, Landings, na.rm = TRUE))
+                    total = max(Landings_in_ecoregion, na.rm = TRUE)
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(!is.na(total))
+
+  # Order stocks by total (smallest at bottom after coord_flip)
+  df <- dplyr::mutate(df, StockKeyLabel = forcats::fct_reorder(StockKeyLabel, total))
+
+  # Flag if any reference point is proxy
+  df <- df %>% dplyr::mutate(ProxyFlag = (F_proxy %in% TRUE) | (B_proxy %in% TRUE))
+
+  # Status palette
+  status_pal <- c(GREEN = "#4daf4a", RED = "#e41a1c", GREY = "#d3d3d3")
+
+  # Caption
+  cap_lab <- ggplot2::labs(
+    caption = paste0("ICES Stock Assessment Database, ",
+                     format(Sys.Date(), "%d-%b-%y"), ". ICES, Copenhagen")
+  )
+
+  proxy_stroke <- 2.5
+
+  # --- Base plot (segments; color by Status, no legend)
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = StockKeyLabel)) +
+    ggplot2::geom_segment(
+      ggplot2::aes(xend = StockKeyLabel, y = 0, yend = Catches/1000, colour = Status),
+      size = 2, na.rm = TRUE, show.legend = FALSE
+    ) +
+    ggplot2::geom_segment(
+      ggplot2::aes(y = Landings/1000, xend = StockKeyLabel, yend = 0, colour = Status),
+      size = 2, na.rm = TRUE, show.legend = FALSE
+    )
+
+  # --- Points (NORMAL refpoints: filled; no legend)
+  p <- p +
+    ggplot2::geom_point(
+      data = dplyr::filter(df, !ProxyFlag),
+      ggplot2::aes(y = Catches/1000, fill = Status),
+      shape = 24, colour = "grey35", size = 7, alpha = 0.85,
+      na.rm = TRUE, show.legend = FALSE
+    ) +
+    ggplot2::geom_point(
+      data = dplyr::filter(df, !ProxyFlag),
+      ggplot2::aes(y = Landings/1000, fill = Status),
+      shape = 21, colour = "grey35", size = 7, alpha = 0.85,
+      na.rm = TRUE, show.legend = FALSE
+    )
+
+  # --- Points (PROXY refpoints: hollow with Status-colored outline; no legend)
+  p <- p +
+    ggplot2::geom_point(
+      data = dplyr::filter(df, ProxyFlag),
+      ggplot2::aes(y = Catches/1000, colour = Status),
+      shape = 24, fill = NA, size = 7, alpha = 1, stroke = proxy_stroke,
+      na.rm = TRUE, show.legend = FALSE
+    ) +
+    ggplot2::geom_point(
+      data = dplyr::filter(df, ProxyFlag),
+      ggplot2::aes(y = Landings/1000, colour = Status),
+      shape = 21, fill = NA, size = 7, alpha = 1, stroke = proxy_stroke,
+      na.rm = TRUE, show.legend = FALSE
+    )
+
+  # --- Scales (suppress Status legends)
+  p <- p +
+    ggplot2::scale_fill_manual(values = status_pal, guide = "none") +
+    ggplot2::scale_colour_manual(values = status_pal, guide = "none")
+
+  # --- Axes, theme
+  p <- p +
+    ggplot2::coord_equal() +
+    ggplot2::coord_flip() +
+    ggplot2::theme_bw(base_size = 20) +
+    ggplot2::labs(x = "Stock code", y = "Catch and Landings (thousand tonnes)") +
+    ggplot2::theme(
+      plot.caption       = ggplot2::element_text(size = 14),
+      panel.grid.minor   = ggplot2::element_blank(),
+      panel.grid.major.y = ggplot2::element_blank(),
+      panel.grid.major.x = ggplot2::element_line(size = 0.1, colour = "grey80")
+    ) +
+    cap_lab
+
+  # --- Legend (bottom-right): build only entries present in data
+  has_land_norm   <- any(!is.na(df$Landings) & !df$ProxyFlag, na.rm = TRUE)
+  has_land_proxy  <- any(!is.na(df$Landings) &  df$ProxyFlag,  na.rm = TRUE)
+  has_catch_norm  <- any(!is.na(df$Catches)  & !df$ProxyFlag,  na.rm = TRUE)
+  has_catch_proxy <- any(!is.na(df$Catches)  &  df$ProxyFlag,   na.rm = TRUE)
+
+  legend_keys <- c(
+    "Landings"        = 21,
+    "Landings \n(Proxy ref. point)"= 21,
+    "Catches"         = 24,
+    "Catches \n(Proxy ref. point)" = 24
+  )
+  present <- c(has_land_norm, has_land_proxy, has_catch_norm, has_catch_proxy)
+  legend_keys <- legend_keys[present]
+  legend_labels <- names(legend_keys)
+
+  if (length(legend_keys) > 0) {
+    # Dummy layer to host the legend (alpha=0 so it won't plot; legend uses override.aes)
+    p <- p +
+      ggplot2::geom_point(
+        data = data.frame(Legend = factor(legend_labels, levels = legend_labels)),
+        ggplot2::aes(x = 0, y = 0, shape = Legend),
+        inherit.aes = FALSE, alpha = 0, show.legend = TRUE
+      ) +
+      ggplot2::scale_shape_manual(
+        name   = NULL,
+        breaks = legend_labels,
+        values = legend_keys,
+        labels = legend_labels
+      ) +
+      ggplot2::guides(
+        shape = ggplot2::guide_legend(
+          override.aes = list(
+            size   = 6,
+            # per-key aesthetics matching 'legend_labels' order:
+            fill   = c("Landings"         = "grey60",
+                       "Landings \n(Proxy ref. point)" = NA,
+                       "Catches"          = "grey60",
+                       "Catches \n(Proxy ref. point)"  = NA)[legend_labels],
+            colour = c("Landings"         = "grey25",
+                       "Landings \n(Proxy ref. point)" = "grey25",
+                       "Catches"          = "grey25",
+                       "Catches \n(Proxy ref. point)"  = "grey25")[legend_labels],
+            stroke = c("Landings"         = 1.0,
+                       "Landings \n(Proxy ref. point)" = 2,
+                       "Catches"          = 1.0,
+                       "Catches \n(Proxy ref. point)"  = 2)[legend_labels],
+            alpha  = 1
+          ),
+          keyheight = ggplot2::unit(30, "pt"),
+          keywidth  = ggplot2::unit(30, "pt"),
+          byrow = TRUE
+        )
+      ) +
+      ggplot2::theme(
+        legend.position      = c(0.98, 0.02),  # bottom-right inside
+        legend.justification = c(1, 0),
+        legend.background    = ggplot2::element_rect(fill = ggplot2::alpha("white", 0.9),
+                                                     colour = "grey85"),
+        legend.spacing.y  = ggplot2::unit(10, "pt"),
+        legend.key.height    = ggplot2::unit(30, "pt"),
+        legend.key.width     = ggplot2::unit(30, "pt")
+      )
+  } else {
+    p <- p + ggplot2::theme(legend.position = "none")
+  }
+
+  if (isTRUE(return_data)) df else p
+}
+p3 <- plot_CLD_bar_app(catch_current_adj, "Pelagic")
+head(catch_current_adj)
