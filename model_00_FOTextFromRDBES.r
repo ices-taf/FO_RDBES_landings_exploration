@@ -26,10 +26,10 @@ percActivity <- 80 # for vessels with at least 80% of their activity in the area
 areaMerge <- c(BoB, Iberian)
 
 
-areaAll <- get_csquare(ecoregion = Ecoregion, convert2sf = TRUE)
+areaAll <- icesVMS::get_csquare(ecoregion = Ecoregion, convert2sf = TRUE)
 area <- unique(areaAll$stat_rec)
-  # 
 
+library(dplyr)
 
 # create objects for analysis----------------
 
@@ -168,7 +168,11 @@ area <- unique(areaAll$stat_rec)
         arrange(desc(CLspeciesFaoCode), IntraCS,(CLyear))  %>%
        select(- c( N_ymin, N_ymax, year_min, year_max)) 
 
-      
+test_mac <- Landings_sub_area_spp  %>% filter(CLyear == 2024 & CLspeciesFaoCode == "MAC")
+test_whb <- Landings_sub_area_spp  %>% filter(CLyear == 2024 & CLspeciesFaoCode == "WHB")
+### sum and conversion from kg to tonnes
+sum(test_mac$weight)/1000
+sum(test_whb$weight)/1000
 ###### vessel with several FT
     cl.allArea %>% filter(CLencryptedVesselIds %in% c("KjuH6h", "bqx6GU") ) %>% distinct(CLfishingTechnique)
 ###### 

@@ -1,8 +1,10 @@
 library(icesVMS)
+library(dplyr)
 Ecoregion = "Bay of Biscay and the Iberian Coast"
 
 areaAll <- get_csquare(ecoregion = Ecoregion, convert2sf = TRUE)
 area <- unique(areaAll$stat_rec)
+# plot(areaAll)
 
 
 ### load extended RDBES 
@@ -14,7 +16,7 @@ dat <- cl.all2 %>%
     CLscientificWeight = sum(CLscientificWeight, na.rm = TRUE))
 
 dat$CLdiv <- sapply(strsplit(dat$CLarea, ".", fixed = TRUE), \(z) paste(z[1:2], collapse = "."))
-
+unique(dat$CLdiv)
 
 ### import stock referential from IFREMER. Should use ICES ref but only working 
 ### for stocks that are not defined using stat rectangles. The IFREMER referential is more complete.
@@ -30,7 +32,7 @@ refStk1 <- refStk %>% filter(REG_AREA_LOCATION_LEVEL_FK == 110)
 refStk2 <- refStk %>% filter(REG_AREA_LOCATION_LEVEL_FK == 111)
 refStk3 <- refStk %>% filter(REG_AREA_LOCATION_LEVEL_FK == 113)
 
-names()
+
 unique(refStk1$REG_AREA_TRANS_ZONE_FAO)
 unique(refStk2$REG_AREA_TRANS_ZONE_FAO)
 unique(refStk3$REG_AREA_TRANS_ZONE_FAO)
@@ -87,7 +89,12 @@ test2 <- test %>%
     ungroup()
 
 
-test2 %>% filter(CLyear == 2024 & fishstock == "mac.27.nea") 
+test_mac <- test2 %>% filter(CLyear == 2024 & fishstock == "mac.27.nea" & CS == "inside") 
+test_whb <- test2 %>% filter(CLyear == 2023 & fishstock == "whb.27.1-91214" & CS == "inside") 
+### sum and conversion from kg to tonnes for mac and whb
+sum(test_mac$Landings)/1000
+sum(test_whb$Landings)/1000
+
 
 write.csv(test2, file = "./output/data_03_shareLandingsInEcoregion.csv", row.names = FALSE)
 library(ggplot2)
@@ -114,7 +121,7 @@ library(icesSD)
 sid <- getSD(year = 2026)
 sid <- sid %>% select(StockKeyLabel,SpeciesScientificName,SpeciesCommonName)
 names(sid)
-stock_codes <- c("nep.fu.31", "cod.27.7e-k", "had.27.46a20")
+# stock_codes <- c("nep.fu.31", "cod.27.7e-k", "had.27.46a20")
 
 areas_by_stock <- lapply(sid$StockKeyLabel, function(code) {
   d <- getCodeDetail("ICES_StockCode", code = code)
