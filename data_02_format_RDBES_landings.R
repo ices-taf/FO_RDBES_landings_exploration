@@ -70,7 +70,7 @@ prelim_RDBES <- areaBI_StatRec %>%
       CLyear,
       CLvesselFlagCountry,
       CLspeciesFaoCode,
-      CLscientificWeight_perVessel,
+      CLscientificWeight,
     #   Scientific_Name,
     #   English_name.x,
       CLarea
@@ -82,7 +82,7 @@ prelim_RDBES <- areaBI_StatRec %>%
     #   SPECIES_NAME = Scientific_Name,
     #   COMMON_NAME = English_name.x,
       Area = CLarea,
-      VALUE = CLscientificWeight_perVessel
+      VALUE = CLscientificWeight
     )
 head(prelim_RDBES)
 

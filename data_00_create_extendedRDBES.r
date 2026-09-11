@@ -63,12 +63,15 @@ cl.all2 <- cl.all  %>%
     CLlandingsValue_perVessel = CLlandingsValue / numVessel
   ) %>%
   mutate(CLencryptedVesselIds = strsplit(CLencryptedVesselIds, ";|/|-")) %>%
-  unnest(CLencryptedVesselIds)
+  unnest(CLencryptedVesselIds) %>%
+  select(-c("CLscientificWeight", "CLlandingsValue", "numVessel")) %>%
+  rename(CLscientificWeight = CLscientificWeight_perVessel, 
+         CLlandingsValue = CLlandingsValue_perVessel)
 
 # checks
 dim(cl.all); dim(cl.all2)
-cl.all  %>% summarise((sum(CLlandingsValue, na.rm=T))) / cl.all2 %>% summarise((sum(CLlandingsValue_perVessel, na.rm=T)))
-
+cl.all  %>% summarise((sum(CLlandingsValue, na.rm=T))) / cl.all2 %>% summarise((sum(CLlandingsValue, na.rm=T)))
+cl.all  %>% summarise((sum(CLscientificWeight, na.rm=T))) / cl.all2 %>% summarise((sum(CLscientificWeight, na.rm=T)))
 
 
 save(cl.all2, file = "./data/extendedRDBES.RData")
