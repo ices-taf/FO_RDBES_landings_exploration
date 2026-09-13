@@ -5,10 +5,10 @@ mac <- catch_current %>%
 
 mac_RDBES <- landings_proportions_RDBES %>% 
     filter(fishstock == "mac.27.nea")
-157955469/715121305
-157955469/1000
-22.08793+77.91207
+
 names(landings_proportions_RDBES)
+names(catch_current)
+unique(catch_current$Year)
 landings_proportions_RDBES_inside <- landings_proportions_RDBES %>% 
     filter(CS == "inside")
 
@@ -22,27 +22,10 @@ setdiff(unique(landings_proportions_RDBES_inside$fishstock), unique(catch_curren
 
 
 # ------------------------------------------------------------------
-# Temporary stock-by-stock adjustment using the most recent RDBES share
-# for each stock. This is a placeholder until a more complete stock-match
-# table is built.
+# Adjust catch and landings using the RDBES share for the matching
+# stock-year combination. This is a placeholder until a complete
+# stock-name matching table is available.
 # ------------------------------------------------------------------
-
-# keep only the latest inside-share value per stock
-recent_stock_share <- landings_proportions_RDBES %>%
-  filter(CS == "inside") %>%
-  mutate(
-    fishstock = trimws(as.character(fishstock)),
-    ShareLandingsInEcoregion = as.numeric(ShareLandingsInEcoregion),
-    CLyear = as.integer(CLyear)
-  ) %>%
-  group_by(fishstock) %>%
-  slice_max(CLyear, n = 1, with_ties = FALSE) %>%
-  ungroup() %>%
-  transmute(
-    StockKeyLabel = fishstock,
-    ShareLandingsInEcoregion,
-    LastRDBESYear = CLyear
-  )
 
 # temporary mapping for obvious naming mismatches between ICES stocks and
 # the RDBES stock names used in the landings table
@@ -53,15 +36,43 @@ stock_name_map <- tibble::tribble(
   "hom.27.2a3a4a5b6a7a-ce-k8", "hom.27.2a4a5b6a7a-ce-k8"
 )
 
+# identify the RDBES stock names represented in catch_current
+catch_stocks <- catch_current %>%
+  transmute(
+    StockKeyLabel = trimws(as.character(StockKeyLabel))
+  ) %>%
+  left_join(stock_name_map, by = "StockKeyLabel") %>%
+  transmute(fishstock = coalesce(match_stock, StockKeyLabel)) %>%
+  distinct(fishstock)
+
+# keep only RDBES stocks represented in catch_current, then use the latest
+# available inside-share row for each stock
+recent_stock_share <- landings_proportions_RDBES %>%
+  mutate(
+    fishstock = trimws(as.character(fishstock)),
+    CLyear = as.integer(CLyear)
+  ) %>%
+  filter(CS == "inside") %>%
+  semi_join(catch_stocks, by = "fishstock") %>%
+  group_by(fishstock) %>%
+  slice_max(CLyear, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  transmute(
+    RDBESStockKeyLabel = fishstock,
+    LastRDBESYear = CLyear,
+    ShareLandingsInEcoregion = as.numeric(ShareLandingsInEcoregion)
+  )
+
 catch_current_adj <- catch_current %>%
   mutate(
     StockKeyLabel = trimws(as.character(StockKeyLabel))
   ) %>%
   left_join(stock_name_map, by = "StockKeyLabel") %>%
   mutate(
-    StockKeyLabel = coalesce(match_stock, StockKeyLabel)
+    RDBESStockKeyLabel = coalesce(match_stock, StockKeyLabel),
+    Year = as.integer(Year)
   ) %>%
-  left_join(recent_stock_share, by = "StockKeyLabel") %>%
+  left_join(recent_stock_share, by = "RDBESStockKeyLabel") %>%
   mutate(
     ShareLandingsInEcoregion = if_else(!is.na(ShareLandingsInEcoregion),
                                       ShareLandingsInEcoregion / 100,
@@ -74,18 +85,29 @@ catch_current_adj <- catch_current %>%
                                    Landings)
   )
 
-# check which stocks still have no recent RDBES share available
+# check which stocks still have no matching RDBES share
 catch_current_adj %>%
   filter(is.na(ShareLandingsInEcoregion)) %>%
   distinct(StockKeyLabel) %>%
   arrange(StockKeyLabel)
-
+names(catch_current_adj)
 # example: compare one stock
-catch_current_adj %>%
+test_mac <- catch_current_adj %>%
   filter(StockKeyLabel == "mac.27.nea") %>%
-  select(StockKeyLabel, LastRDBESYear, ShareLandingsInEcoregion,
+  select(StockKeyLabel, Year, RDBESStockKeyLabel,
+         ShareLandingsInEcoregion,
          Catches, Catches_in_ecoregion, Landings, Landings_in_ecoregion)
-head(catch_current_adj)
+test_whb <- catch_current_adj %>%
+  filter(StockKeyLabel == "whb.27.1-91214") %>%
+  select(StockKeyLabel, Year, RDBESStockKeyLabel,
+         ShareLandingsInEcoregion,
+         Catches, Catches_in_ecoregion, Landings, Landings_in_ecoregion)
+head(test_mac)
+head(test_whb)
+test_mac$Catches
+test_mac$Catches_in_ecoregion/test_mac$Catches
+test_mac$Landings
+test_mac$Landings_in_ecoregion
 
 catch_current_adj$ShareLandingsInEcoregion
     

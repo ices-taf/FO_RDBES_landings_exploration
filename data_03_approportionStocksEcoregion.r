@@ -54,6 +54,7 @@ test <- test %>%
     left_join(refStk3, by = c("CLspeciesFaoCode" = "TAXON_GROUP_LABEL",
     "CLstatisticalRectangle" = "REG_AREA_TRANS_ZONE_FAO")) %>%
     select(-REG_AREA_LOCATION_LEVEL_FK)
+
 sum(dat$CLscientificWeight)/sum(test$CLscientificWeight)
 
 
@@ -71,12 +72,12 @@ sum(dat$CLscientificWeight)/sum(test$CLscientificWeight)
 
 
 
-    # define inside/outside of the area of interest
-    test <- test %>%
-      mutate(CS = case_when(
-        CLstatisticalRectangle %in% area ~ "inside",
-        .default = "outside"
-      ))
+# define inside/outside of the area of interest
+test <- test %>%
+    mutate(CS = case_when(
+    CLstatisticalRectangle %in% area ~ "inside",
+    .default = "outside"
+    ))
 
 
 test2 <- test %>%
@@ -90,7 +91,7 @@ test2 <- test %>%
 
 
 test_mac <- test2 %>% filter(CLyear == 2024 & fishstock == "mac.27.nea" & CS == "inside") 
-test_whb <- test2 %>% filter(CLyear == 2023 & fishstock == "whb.27.1-91214" & CS == "inside") 
+test_whb <- test2 %>% filter(CLyear == 2024 & fishstock == "whb.27.1-91214" & CS == "inside") 
 ### sum and conversion from kg to tonnes for mac and whb
 sum(test_mac$Landings)/1000
 sum(test_whb$Landings)/1000

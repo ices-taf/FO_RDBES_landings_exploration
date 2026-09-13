@@ -809,7 +809,7 @@ catch_dat_prelim <- catch_dat_prelim %>%
 save_catch_trends_html <- function(
     data,
     guilds = NULL,
-    types = "Common name",
+    types = c("Common name", "Country", "Fisheries guild"),
     ecoregion,
     output_dir = "landings_RDBES_html",
     line_count = 10,
@@ -828,34 +828,67 @@ sanitize_filename <- function(x) {
     gsub("[^A-Za-z0-9]+", "_", trimws(x))
   }
 
-  for (type in types) {
+  output_path <- if (grepl("^\\.?[\\\\/]?output[\\\\/]", output_dir)) {
+    output_dir
+  } else {
+    file.path("./output", output_dir)
+  }
+  dir.create(output_path, recursive = TRUE, showWarnings = FALSE)
 
-    for (guild in guilds) {
+  save_plot <- function(type, selected_guild = NULL, file_name) {
+    message("Creating: ", file_name)
 
-      message("Creating: ", type, " | ", guild)
+    p <- plot_catch_trends_plotly_rdbes(
+      x = data,
+      type = type,
+      line_count = line_count,
+      selected_guild = selected_guild,
+      dataUpdated = dataUpdated,
+      return_data = FALSE,
+      session = NULL,
+      ecoregion = ecoregion
+    )
 
-      p <- plot_catch_trends_plotly_rdbes(
-        x = data,
-        type = type,
-        line_count = line_count,
-        selected_guild = if (type == "Common name") guild else NULL,
-        dataUpdated = dataUpdated,
-        return_data = FALSE,
-        session = NULL,
-        ecoregion = ecoregion
-      )
+    htmlwidgets::saveWidget(
+      widget = p,
+      file = file.path(output_path, paste0(file_name, ".html")),
+      selfcontained = TRUE
+    )
+  }
 
-      file_name <- paste(
-        sanitize_filename(type),
-        sanitize_filename(guild),
+  if ("Country" %in% types) {
+    save_plot(
+      type = "Country",
+      file_name = paste(
+        "Country",
         sanitize_filename(ecoregion),
         sep = "_"
       )
+    )
+  }
 
-      htmlwidgets::saveWidget(
-        widget = p,
-        file = file.path("./output/landings_RDBES_html", paste0(file_name, ".html")),
-        selfcontained = TRUE
+  if ("Fisheries guild" %in% types) {
+    save_plot(
+      type = "Fisheries guild",
+      file_name = paste(
+        "Fisheries_guild",
+        sanitize_filename(ecoregion),
+        sep = "_"
+      )
+    )
+  }
+
+  if ("Common name" %in% types) {
+    for (guild in guilds) {
+      save_plot(
+        type = "Common name",
+        selected_guild = guild,
+        file_name = paste(
+          "Common_name",
+          sanitize_filename(guild),
+          sanitize_filename(ecoregion),
+          sep = "_"
+        )
       )
     }
   }
