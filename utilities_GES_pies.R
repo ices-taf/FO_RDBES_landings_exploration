@@ -252,7 +252,7 @@ stockstatus_CLD_current_proxy <- function(x) {
   df4
 }
 
-
+icesFO::plot_GES_pies
 
 plot_GES_pies <- function(x, y, return_data = FALSE, width_px = 800) {
   # --- Responsive sizes
@@ -705,9 +705,10 @@ plot_CLD_bar_app <- function(x, guild, return_data = FALSE) {
   df <- df %>%
     dplyr::group_by(StockKeyLabel) %>%
     dplyr::mutate(
-    #   total = ifelse(all(is.na(Catches) & is.na(Landings)), NA,    
-                    #  max(Catches, Landings, na.rm = TRUE))
-                    total = max(Landings_in_ecoregion, na.rm = TRUE)
+      total = ifelse(
+        all(is.na(Catches_in_ecoregion) & is.na(Landings_in_ecoregion)), NA_real_,
+        max(Catches_in_ecoregion, Landings_in_ecoregion, na.rm = TRUE)
+      )
     ) %>%
     dplyr::ungroup() %>%
     dplyr::filter(!is.na(total))
@@ -732,25 +733,25 @@ plot_CLD_bar_app <- function(x, guild, return_data = FALSE) {
   # --- Base plot (segments; color by Status, no legend)
   p <- ggplot2::ggplot(df, ggplot2::aes(x = StockKeyLabel)) +
     ggplot2::geom_segment(
-      ggplot2::aes(xend = StockKeyLabel, y = 0, yend = Catches/1000, colour = Status),
-      size = 2, na.rm = TRUE, show.legend = FALSE
+      ggplot2::aes(xend = StockKeyLabel, y = 0, yend = Catches_in_ecoregion/1000, colour = Status),
+      linewidth = 2, na.rm = TRUE, show.legend = FALSE
     ) +
     ggplot2::geom_segment(
-      ggplot2::aes(y = Landings/1000, xend = StockKeyLabel, yend = 0, colour = Status),
-      size = 2, na.rm = TRUE, show.legend = FALSE
+      ggplot2::aes(y = Landings_in_ecoregion/1000, xend = StockKeyLabel, yend = 0, colour = Status),
+      linewidth = 2, na.rm = TRUE, show.legend = FALSE
     )
 
   # --- Points (NORMAL refpoints: filled; no legend)
   p <- p +
     ggplot2::geom_point(
       data = dplyr::filter(df, !ProxyFlag),
-      ggplot2::aes(y = Catches/1000, fill = Status),
+      ggplot2::aes(y = Catches_in_ecoregion/1000, fill = Status),
       shape = 24, colour = "grey35", size = 7, alpha = 0.85,
       na.rm = TRUE, show.legend = FALSE
     ) +
     ggplot2::geom_point(
       data = dplyr::filter(df, !ProxyFlag),
-      ggplot2::aes(y = Landings/1000, fill = Status),
+      ggplot2::aes(y = Landings_in_ecoregion/1000, fill = Status),
       shape = 21, colour = "grey35", size = 7, alpha = 0.85,
       na.rm = TRUE, show.legend = FALSE
     )
@@ -759,13 +760,13 @@ plot_CLD_bar_app <- function(x, guild, return_data = FALSE) {
   p <- p +
     ggplot2::geom_point(
       data = dplyr::filter(df, ProxyFlag),
-      ggplot2::aes(y = Catches/1000, colour = Status),
+      ggplot2::aes(y = Catches_in_ecoregion/1000, colour = Status),
       shape = 24, fill = NA, size = 7, alpha = 1, stroke = proxy_stroke,
       na.rm = TRUE, show.legend = FALSE
     ) +
     ggplot2::geom_point(
       data = dplyr::filter(df, ProxyFlag),
-      ggplot2::aes(y = Landings/1000, colour = Status),
+      ggplot2::aes(y = Landings_in_ecoregion/1000, colour = Status),
       shape = 21, fill = NA, size = 7, alpha = 1, stroke = proxy_stroke,
       na.rm = TRUE, show.legend = FALSE
     )
@@ -777,7 +778,6 @@ plot_CLD_bar_app <- function(x, guild, return_data = FALSE) {
 
   # --- Axes, theme
   p <- p +
-    ggplot2::coord_equal() +
     ggplot2::coord_flip() +
     ggplot2::theme_bw(base_size = 20) +
     ggplot2::labs(x = "Stock code", y = "Catch and Landings (thousand tonnes)") +
@@ -785,15 +785,15 @@ plot_CLD_bar_app <- function(x, guild, return_data = FALSE) {
       plot.caption       = ggplot2::element_text(size = 14),
       panel.grid.minor   = ggplot2::element_blank(),
       panel.grid.major.y = ggplot2::element_blank(),
-      panel.grid.major.x = ggplot2::element_line(size = 0.1, colour = "grey80")
+      panel.grid.major.x = ggplot2::element_line(linewidth = 0.1, colour = "grey80")
     ) +
     cap_lab
 
   # --- Legend (bottom-right): build only entries present in data
-  has_land_norm   <- any(!is.na(df$Landings) & !df$ProxyFlag, na.rm = TRUE)
-  has_land_proxy  <- any(!is.na(df$Landings) &  df$ProxyFlag,  na.rm = TRUE)
-  has_catch_norm  <- any(!is.na(df$Catches)  & !df$ProxyFlag,  na.rm = TRUE)
-  has_catch_proxy <- any(!is.na(df$Catches)  &  df$ProxyFlag,   na.rm = TRUE)
+  has_land_norm   <- any(!is.na(df$Landings_in_ecoregion) & !df$ProxyFlag, na.rm = TRUE)
+  has_land_proxy  <- any(!is.na(df$Landings_in_ecoregion) &  df$ProxyFlag,  na.rm = TRUE)
+  has_catch_norm  <- any(!is.na(df$Catches_in_ecoregion)  & !df$ProxyFlag,  na.rm = TRUE)
+  has_catch_proxy <- any(!is.na(df$Catches_in_ecoregion)  &  df$ProxyFlag,   na.rm = TRUE)
 
   legend_keys <- c(
     "Landings"        = 21,
@@ -857,4 +857,627 @@ plot_CLD_bar_app <- function(x, guild, return_data = FALSE) {
   }
 
   if (isTRUE(return_data)) df else p
+}
+
+
+#' Interactive (plotly) version of plot_CLD_bar_app
+#'
+#' Same inputs/logic as plot_CLD_bar_app (guild filter, ecoregion-scoped
+#' Catches/Landings, proxy reference-point flagging, ordering by total catch),
+#' rendered as an interactive horizontal lollipop chart instead of ggplot2.
+plot_CLD_bar_app_plotly <- function(x, guild, return_data = FALSE) {
+  # --- Filter by guild
+  df <- if (identical(guild, "All")) x else dplyr::filter(x, FisheriesGuild %in% guild)
+
+  # --- Ensure proxy flags exist
+  if (!"F_proxy" %in% names(df)) warning("Missing 'F_proxy' column in input data. This may indicate an upstream data issue.")
+  if (!"B_proxy" %in% names(df)) warning("Missing 'B_proxy' column in input data. This may indicate an upstream data issue.")
+
+  # --- Build 'total' per stock (max of Catches/Landings across time)
+  df <- df %>%
+    dplyr::group_by(StockKeyLabel) %>%
+    dplyr::mutate(
+      total = ifelse(
+        all(is.na(Catches_in_ecoregion) & is.na(Landings_in_ecoregion)), NA_real_,
+        max(Catches_in_ecoregion, Landings_in_ecoregion, na.rm = TRUE)
+      )
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(!is.na(total))
+
+  # Order stocks by total (smallest at bottom, matching plot_CLD_bar_app)
+  stock_order <- unique(as.character(dplyr::arrange(df, total)$StockKeyLabel))
+  df$StockKeyLabel <- factor(as.character(df$StockKeyLabel), levels = stock_order)
+
+  # Flag if any reference point is proxy
+  df <- df %>% dplyr::mutate(ProxyFlag = (F_proxy %in% TRUE) | (B_proxy %in% TRUE))
+
+  status_pal <- c(GREEN = "#4daf4a", RED = "#e41a1c", GREY = "#d3d3d3")
+  # precompute an explicit hex colour per row (avoids plotly's discrete colour
+  # scale silently falling back to a default colourway for unmatched levels)
+  df$status_hex <- unname(status_pal[as.character(df$Status)])
+  df$status_hex[is.na(df$status_hex)] <- status_pal[["GREY"]]
+
+  if (isTRUE(return_data)) return(df)
+
+  catch_df <- dplyr::filter(df, !is.na(Catches_in_ecoregion))
+  land_df  <- dplyr::filter(df, !is.na(Landings_in_ecoregion))
+
+  hover_catch <- ~paste0("<b>", StockKeyLabel, "</b><br>Catches: ",
+                          scales::comma(round(Catches_in_ecoregion)), " t<br>Status: ", Status)
+  hover_land  <- ~paste0("<b>", StockKeyLabel, "</b><br>Landings: ",
+                          scales::comma(round(Landings_in_ecoregion)), " t<br>Status: ", Status)
+
+  p <- plotly::plot_ly()
+
+  # --- Segments (colour by Status, no legend)
+  if (nrow(catch_df) > 0) {
+    for (status_colour in unique(catch_df$status_hex)) {
+      status_df <- dplyr::filter(catch_df, status_hex == status_colour)
+      p <- plotly::add_segments(
+        p, data = status_df,
+        x = ~0, xend = ~Catches_in_ecoregion / 1000,
+        y = ~StockKeyLabel, yend = ~StockKeyLabel,
+        line = list(color = status_colour, width = 6), opacity = 0.6,
+        showlegend = FALSE, hoverinfo = "skip"
+      )
+    }
+  }
+  if (nrow(land_df) > 0) {
+    for (status_colour in unique(land_df$status_hex)) {
+      status_df <- dplyr::filter(land_df, status_hex == status_colour)
+      p <- plotly::add_segments(
+        p, data = status_df,
+        x = ~0, xend = ~Landings_in_ecoregion / 1000,
+        y = ~StockKeyLabel, yend = ~StockKeyLabel,
+        line = list(color = status_colour, width = 6), opacity = 0.6,
+        showlegend = FALSE, hoverinfo = "skip"
+      )
+    }
+  }
+
+  # --- Points (NORMAL refpoints: filled; PROXY refpoints: hollow outline)
+  catch_norm  <- dplyr::filter(catch_df, !ProxyFlag)
+  catch_proxy <- dplyr::filter(catch_df,  ProxyFlag)
+  land_norm   <- dplyr::filter(land_df,  !ProxyFlag)
+  land_proxy  <- dplyr::filter(land_df,   ProxyFlag)
+
+  if (nrow(catch_norm) > 0) {
+    p <- plotly::add_markers(
+      p, data = catch_norm, x = ~Catches_in_ecoregion / 1000, y = ~StockKeyLabel,
+      marker = list(symbol = "triangle-up", size = 16, color = catch_norm$status_hex,
+                    line = list(color = rep("grey35", nrow(catch_norm)), width = 1)),
+      text = hover_catch, hoverinfo = "text", showlegend = FALSE
+    )
+  }
+  if (nrow(land_norm) > 0) {
+    p <- plotly::add_markers(
+      p, data = land_norm, x = ~Landings_in_ecoregion / 1000, y = ~StockKeyLabel,
+      marker = list(symbol = "circle", size = 16, color = land_norm$status_hex,
+                    line = list(color = rep("grey35", nrow(land_norm)), width = 1)),
+      text = hover_land, hoverinfo = "text", showlegend = FALSE
+    )
+  }
+  if (nrow(catch_proxy) > 0) {
+    p <- plotly::add_markers(
+      p, data = catch_proxy, x = ~Catches_in_ecoregion / 1000, y = ~StockKeyLabel,
+      marker = list(symbol = "triangle-up-open", size = 16, color = catch_proxy$status_hex, line = list(width = 2.5)),
+      text = hover_catch, hoverinfo = "text", showlegend = FALSE
+    )
+  }
+  if (nrow(land_proxy) > 0) {
+    p <- plotly::add_markers(
+      p, data = land_proxy, x = ~Landings_in_ecoregion / 1000, y = ~StockKeyLabel,
+      marker = list(symbol = "circle-open", size = 16, color = land_proxy$status_hex, line = list(width = 2.5)),
+      text = hover_land, hoverinfo = "text", showlegend = FALSE
+    )
+  }
+
+  # --- Legend (shape meaning only, built from entries present in data)
+  legend_defs <- list(
+    "Landings"                      = list(symbol = "circle",       filled = TRUE),
+    "Landings \n(Proxy ref. point)"  = list(symbol = "circle-open",  filled = FALSE),
+    "Catches"                        = list(symbol = "triangle-up",      filled = TRUE),
+    "Catches \n(Proxy ref. point)"   = list(symbol = "triangle-up-open", filled = FALSE)
+  )
+  present <- c(nrow(land_norm) > 0, nrow(land_proxy) > 0, nrow(catch_norm) > 0, nrow(catch_proxy) > 0)
+  legend_defs <- legend_defs[present]
+
+  for (nm in names(legend_defs)) {
+    def <- legend_defs[[nm]]
+    p <- plotly::add_markers(
+      p, x = -1, y = -1, xaxis = "x2", yaxis = "y2",
+      name = nm, legendgroup = nm,
+      marker = list(
+        symbol = def$symbol, size = 12, color = "black",
+        line = list(color = "black", width = if (def$filled) 1 else 2)
+      ),
+      inherit = FALSE, showlegend = TRUE, hoverinfo = "skip"
+    )
+  }
+
+  plotly::layout(
+    p,
+    xaxis = list(title = "Catch and Landings (thousand tonnes)", zeroline = TRUE),
+    yaxis = list(title = "Stock code",
+                 categoryorder = "array", categoryarray = stock_order),
+    # hidden, fully independent axis pair just to host the dummy legend markers
+    # (points plotted outside [0,1] so they're clipped and never rendered)
+    xaxis2 = list(overlaying = "x", visible = FALSE, range = c(0, 1), fixedrange = TRUE, autorange = FALSE),
+    yaxis2 = list(overlaying = "y", visible = FALSE, range = c(0, 1), fixedrange = TRUE, autorange = FALSE),
+    legend = list(title = list(text = ""), x = 0.98, y = 0.02,
+                  xanchor = "right", yanchor = "bottom",
+                  bgcolor = "rgba(255,255,255,0.9)", bordercolor = "grey85", borderwidth = 1),
+    hovermode = "closest",
+    margin = list(l = 120, b = 60),
+    annotations = list(list(
+      x = 1, y = -0.08, xref = "paper", yref = "paper",
+      xanchor = "right", yanchor = "top", showarrow = FALSE,
+      text = paste0("ICES Stock Assessment Database, ",
+                    format(Sys.Date(), "%d-%b-%y"), ". ICES, Copenhagen"),
+      font = list(size = 10)
+    ))
+  ) |>
+    plotly::config(
+      toImageButtonOptions = list(
+        filename = paste0("CLD_bar_", format(Sys.Date(), "%d-%b-%y")),
+        format = "png",
+        scale = 3
+      )
+    )
+}
+
+
+#' Dumbbell version of plot_CLD_bar_app_plotly
+#'
+#' Same inputs/logic (guild filter, ecoregion-scoped Catches/Landings, proxy
+#' flagging, ordering by total catch) but draws Catches and Landings as two
+#' points joined by a short segment (instead of two bars anchored at zero).
+#' This avoids colour-blending where overlapping catches/landings segments
+#' cover each other, and works well with a log-scale x-axis (log_scale = TRUE)
+#' so stocks spanning several orders of magnitude remain readable together.
+plot_CLD_bar_app_dumbbell_plotly <- function(x, guild, return_data = FALSE, log_scale = TRUE) {
+  # --- Filter by guild
+  df <- if (identical(guild, "All")) x else dplyr::filter(x, FisheriesGuild %in% guild)
+
+  # --- Ensure proxy flags exist
+  if (!"F_proxy" %in% names(df)) warning("Missing 'F_proxy' column in input data. This may indicate an upstream data issue.")
+  if (!"B_proxy" %in% names(df)) warning("Missing 'B_proxy' column in input data. This may indicate an upstream data issue.")
+
+  # --- Build 'total' per stock (max of Catches/Landings across time)
+  df <- df %>%
+    dplyr::group_by(StockKeyLabel) %>%
+    dplyr::mutate(
+      total = ifelse(
+        all(is.na(Catches_in_ecoregion) & is.na(Landings_in_ecoregion)), NA_real_,
+        max(Catches_in_ecoregion, Landings_in_ecoregion, na.rm = TRUE)
+      )
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(!is.na(total))
+
+  # log scale can't show zero/negative values; drop them (and warn) rather
+  # than silently let plotly clip them
+  if (isTRUE(log_scale)) {
+    n_before <- nrow(df)
+    df <- dplyr::filter(df, is.na(Catches_in_ecoregion) | Catches_in_ecoregion > 0,
+                             is.na(Landings_in_ecoregion) | Landings_in_ecoregion > 0)
+    if (nrow(df) < n_before) {
+      warning(sprintf("log_scale = TRUE: dropped %d row(s) with zero/negative Catches or Landings.",
+                       n_before - nrow(df)))
+    }
+  }
+
+  # Order stocks by total (smallest at bottom)
+  stock_order <- unique(as.character(dplyr::arrange(df, total)$StockKeyLabel))
+  df$StockKeyLabel <- factor(as.character(df$StockKeyLabel), levels = stock_order)
+
+  # Flag if any reference point is proxy
+  df <- df %>% dplyr::mutate(ProxyFlag = (F_proxy %in% TRUE) | (B_proxy %in% TRUE))
+
+  status_pal <- c(GREEN = "#4daf4a", RED = "#e41a1c", GREY = "#d3d3d3")
+  # precompute an explicit hex colour per row (avoids plotly's discrete colour
+  # scale silently falling back to a default colourway for unmatched levels)
+  df$status_hex <- unname(status_pal[as.character(df$Status)])
+  df$status_hex[is.na(df$status_hex)] <- status_pal[["GREY"]]
+
+  if (isTRUE(return_data)) return(df)
+
+  # --- Connecting segments only where both Catches and Landings are available
+  seg_df <- dplyr::filter(df, !is.na(Catches_in_ecoregion) & !is.na(Landings_in_ecoregion))
+
+  catch_df <- dplyr::filter(df, !is.na(Catches_in_ecoregion))
+  land_df  <- dplyr::filter(df, !is.na(Landings_in_ecoregion))
+
+  hover_catch <- ~paste0("<b>", StockKeyLabel, "</b><br>Catches: ",
+                          scales::comma(round(Catches_in_ecoregion)), " t<br>Status: ", Status)
+  hover_land  <- ~paste0("<b>", StockKeyLabel, "</b><br>Landings: ",
+                          scales::comma(round(Landings_in_ecoregion)), " t<br>Status: ", Status)
+
+  p <- plotly::plot_ly()
+
+  # --- Connecting segment (black - represents the catch/landing gap, i.e.
+  # discards; colour is carried by the markers, not the line, to avoid blending)
+  if (nrow(seg_df) > 0) {
+    p <- plotly::add_segments(
+      p, data = seg_df,
+      x = ~Catches_in_ecoregion / 1000, xend = ~Landings_in_ecoregion / 1000,
+      y = ~StockKeyLabel, yend = ~StockKeyLabel,
+      line = list(color = "black", width = 1.5),
+      showlegend = FALSE, hoverinfo = "skip"
+    )
+  }
+
+  # --- Points (NORMAL refpoints: filled; PROXY refpoints: hollow outline)
+  catch_norm  <- dplyr::filter(catch_df, !ProxyFlag)
+  catch_proxy <- dplyr::filter(catch_df,  ProxyFlag)
+  land_norm   <- dplyr::filter(land_df,  !ProxyFlag)
+  land_proxy  <- dplyr::filter(land_df,   ProxyFlag)
+
+  if (nrow(catch_norm) > 0) {
+    p <- plotly::add_markers(
+      p, data = catch_norm, x = ~Catches_in_ecoregion / 1000, y = ~StockKeyLabel,
+      marker = list(symbol = "triangle-up", size = 14, color = catch_norm$status_hex,
+                    line = list(color = rep("grey35", nrow(catch_norm)), width = 1)),
+      text = hover_catch, hoverinfo = "text", showlegend = FALSE
+    )
+  }
+  if (nrow(land_norm) > 0) {
+    p <- plotly::add_markers(
+      p, data = land_norm, x = ~Landings_in_ecoregion / 1000, y = ~StockKeyLabel,
+      marker = list(symbol = "circle", size = 14, color = land_norm$status_hex,
+                    line = list(color = rep("grey35", nrow(land_norm)), width = 1)),
+      text = hover_land, hoverinfo = "text", showlegend = FALSE
+    )
+  }
+  if (nrow(catch_proxy) > 0) {
+    p <- plotly::add_markers(
+      p, data = catch_proxy, x = ~Catches_in_ecoregion / 1000, y = ~StockKeyLabel,
+      marker = list(symbol = "triangle-up-open", size = 14, color = catch_proxy$status_hex, line = list(width = 2.5)),
+      text = hover_catch, hoverinfo = "text", showlegend = FALSE
+    )
+  }
+  if (nrow(land_proxy) > 0) {
+    p <- plotly::add_markers(
+      p, data = land_proxy, x = ~Landings_in_ecoregion / 1000, y = ~StockKeyLabel,
+      marker = list(symbol = "circle-open", size = 14, color = land_proxy$status_hex, line = list(width = 2.5)),
+      text = hover_land, hoverinfo = "text", showlegend = FALSE
+    )
+  }
+
+  # --- Legend (shape meaning only, built from entries present in data)
+  legend_defs <- list(
+    "Landings"                      = list(symbol = "circle",       filled = TRUE),
+    "Landings \n(Proxy ref. point)"  = list(symbol = "circle-open",  filled = FALSE),
+    "Catches"                        = list(symbol = "triangle-up",      filled = TRUE),
+    "Catches \n(Proxy ref. point)"   = list(symbol = "triangle-up-open", filled = FALSE)
+  )
+  present <- c(nrow(land_norm) > 0, nrow(land_proxy) > 0, nrow(catch_norm) > 0, nrow(catch_proxy) > 0)
+  legend_defs <- legend_defs[present]
+
+  for (nm in names(legend_defs)) {
+    def <- legend_defs[[nm]]
+    p <- plotly::add_markers(
+      p, x = -1, y = -1, xaxis = "x2", yaxis = "y2",
+      name = nm, legendgroup = nm,
+      marker = list(
+        symbol = def$symbol, size = 12, color = "black",
+        line = list(color = "black", width = if (def$filled) 1 else 2)
+      ),
+      inherit = FALSE, showlegend = TRUE, hoverinfo = "skip"
+    )
+  }
+
+  x_title <- paste0("Catch and Landings (thousand tonnes)", if (isTRUE(log_scale)) " \u2014 log scale" else "")
+
+  plotly::layout(
+    p,
+    xaxis = list(title = x_title, type = if (isTRUE(log_scale)) "log" else "linear", zeroline = FALSE),
+    yaxis = list(title = "Stock code",
+                 categoryorder = "array", categoryarray = stock_order),
+    # hidden, fully independent axis pair just to host the dummy legend markers
+    # (points plotted outside [0,1] so they're clipped and never rendered)
+    xaxis2 = list(overlaying = "x", visible = FALSE, range = c(0, 1), fixedrange = TRUE, autorange = FALSE),
+    yaxis2 = list(overlaying = "y", visible = FALSE, range = c(0, 1), fixedrange = TRUE, autorange = FALSE),
+    legend = list(title = list(text = ""), x = 0.98, y = 0.02,
+                  xanchor = "right", yanchor = "bottom",
+                  bgcolor = "rgba(255,255,255,0.9)", bordercolor = "grey85", borderwidth = 1),
+    hovermode = "closest",
+    margin = list(l = 120, b = 60),
+    annotations = list(list(
+      x = 1, y = -0.08, xref = "paper", yref = "paper",
+      xanchor = "right", yanchor = "top", showarrow = FALSE,
+      text = paste0("ICES Stock Assessment Database, ",
+                    format(Sys.Date(), "%d-%b-%y"), ". ICES, Copenhagen"),
+      font = list(size = 10)
+    ))
+  ) |>
+    plotly::config(
+      toImageButtonOptions = list(
+        filename = paste0("CLD_dumbbell_", format(Sys.Date(), "%d-%b-%y")),
+        format = "png",
+        scale = 3
+      )
+    )
+}
+
+
+
+
+
+
+plot_kobe_app <- function(x, guild, return_data = FALSE){
+
+  cap_lab <- ggplot2::labs(
+    caption = paste0("ICES Stock Assessment Database, ",
+                     format(Sys.Date(), "%d-%b-%y"), ". ICES, Copenhagen")
+  )
+
+  # Filter by guild
+  df <- if (identical(guild, "All")) x else dplyr::filter(x, FisheriesGuild %in% guild)
+
+  # Be robust if proxy flags aren't present
+  if (!"F_proxy" %in% names(df)) df$F_proxy <- FALSE
+  if (!"B_proxy" %in% names(df)) df$B_proxy <- FALSE
+
+  # Flag proxy if either reference point is proxy
+  df <- df %>%
+    dplyr::mutate(
+      ProxyFlag = dplyr::if_else((F_proxy %in% TRUE) | (B_proxy %in% TRUE),
+                                 "Proxy reference point", "Reference point")
+    )
+
+  # Axes limits
+  xmax  <- suppressWarnings(max(df$F_FMSY, na.rm = TRUE))
+  xmax2 <- if (is.finite(xmax) && xmax < 3) 3 else xmax + 0.5
+  ymax  <- suppressWarnings(max(df$SSB_MSYBtrigger, na.rm = TRUE))
+  ymax2 <- if (is.finite(ymax) && ymax < 3) 3 else ymax + 0.5
+
+  # Symbol sizes
+  pt_size   <- 10
+  proxy_stroke <- 1.8  # <-- thicker outline for empty circle
+
+  kobe <-
+    ggplot2::ggplot(df, ggplot2::aes(x = F_FMSY, y = SSB_MSYBtrigger, data_id = StockKeyLabel)) +
+    ggplot2::coord_cartesian(xlim = c(0, xmax2), ylim = c(0, ymax2)) +
+
+    # ---- Normal refpoint (filled circle) ----
+    ggplot2::geom_point(
+      data = dplyr::filter(df, ProxyFlag == "Reference point"),
+      ggplot2::aes(color = Status, shape = ProxyFlag),
+      size = pt_size, alpha = 0.7, na.rm = TRUE
+    ) +
+
+    # ---- Proxy refpoint (empty circle with thicker outline) ----
+    ggplot2::geom_point(
+      data = dplyr::filter(df, ProxyFlag == "Proxy reference point"),
+      ggplot2::aes(color = Status, shape = ProxyFlag),
+      size = pt_size, alpha = 0.9, na.rm = TRUE,
+      fill = NA, stroke = proxy_stroke
+    ) +
+
+    ggplot2::geom_hline(yintercept = 1, color = "grey60", linetype = "dashed") +
+    ggplot2::geom_vline(xintercept = 1, color = "grey60", linetype = "dashed") +
+
+    ggrepel::geom_text_repel(
+      ggplot2::aes(label = StockKeyLabel),
+      segment.size = .25, force = 5, size = 5
+    ) +
+
+    # Color by status (no color legend)
+    ggplot2::scale_color_manual(
+      values = c(GREEN = "#4daf4a", RED = "#e41a1c", GREY = "#d3d3d3"),
+      guide = "none"
+    ) +
+
+    # Shape legend (auto-drops “Proxy refpoint” if not present)
+    ggplot2::scale_shape_manual(
+      name   = "ICES reference point",
+      values = c("Reference point" = 16,  # filled circle
+                 "Proxy reference point"  = 21), # circle with border (uses stroke)
+      drop = TRUE
+    ) +
+
+    ggplot2::labs(
+      x = expression(F/F[MSY]),
+      y = expression(SSB/MSY~B[trigger]),
+      caption = ""
+    ) +
+    ggplot2::theme_bw(base_size = 20) +
+    ggplot2::theme(
+      panel.grid.minor   = ggplot2::element_blank(),
+      panel.grid.major   = ggplot2::element_blank(),
+      plot.caption       = ggplot2::element_text(size = 14),
+      legend.position    = c(0.98, 0.98),  # top-right inside plot
+      legend.justification = c(1, 1),
+      legend.background  = ggplot2::element_rect(fill = ggplot2::alpha("white", 0.85),
+                                                 color = "grey85"),
+      legend.key.height  = ggplot2::unit(30, "pt"),
+      legend.key.width   = ggplot2::unit(30, "pt")
+    ) +
+    # Make legend symbols neutral (single color) and readable
+    ggplot2::guides(
+      shape = ggplot2::guide_legend(
+        override.aes = list(size = 4, alpha = 1, colour = "grey20", fill = NA, stroke = proxy_stroke)
+      )
+    ) +
+    cap_lab
+
+  if (isTRUE(return_data)) df else kobe
+}
+
+
+plot_kobe_app_plotly <- function(x, guild, return_data = FALSE) {
+
+  # Keep the data preparation aligned with plot_kobe_app
+  df <- if (identical(guild, "All")) x else dplyr::filter(x, FisheriesGuild %in% guild)
+
+  if (!"F_proxy" %in% names(df)) df$F_proxy <- FALSE
+  if (!"B_proxy" %in% names(df)) df$B_proxy <- FALSE
+
+  df <- df %>%
+    dplyr::mutate(
+      ProxyFlag = dplyr::if_else((F_proxy %in% TRUE) | (B_proxy %in% TRUE),
+                                 "Proxy reference point", "Reference point")
+    )
+
+  xmax  <- suppressWarnings(max(df$F_FMSY, na.rm = TRUE))
+  xmax2 <- if (is.finite(xmax) && xmax < 3) 3 else xmax + 0.5
+  ymax  <- suppressWarnings(max(df$SSB_MSYBtrigger, na.rm = TRUE))
+  ymax2 <- if (is.finite(ymax) && ymax < 3) 3 else ymax + 0.5
+
+  if (isTRUE(return_data)) return(df)
+
+  status_pal <- c(GREEN = "#4daf4a", RED = "#e41a1c", GREY = "#d3d3d3")
+  df$status_hex <- unname(status_pal[as.character(df$Status)])
+  df$status_hex[is.na(df$status_hex)] <- status_pal[["GREY"]]
+
+  normal_df <- dplyr::filter(df, ProxyFlag == "Reference point")
+  proxy_df  <- dplyr::filter(df, ProxyFlag == "Proxy reference point")
+
+  p <- plotly::plot_ly()
+  stock_annotations <- list()
+
+  # Washed-out Kobe quadrants with hoverable descriptions. The polygon traces
+  # sit behind the markers and provide hover information that layout shapes do not.
+  add_kobe_quadrant <- function(plot, x_values, y_values, fill_colour, title, description) {
+    plotly::add_trace(
+      plot,
+      type = "scatter",
+      mode = "lines",
+      x = x_values,
+      y = y_values,
+      fill = "toself",
+      fillcolor = fill_colour,
+      line = list(color = "rgba(0,0,0,0)", width = 0),
+      hoveron = "fills",
+      name = title,
+      text = description,
+      hoverinfo = "text",
+      hovertemplate = paste0("<b>", title, "</b><br>%{text}<extra></extra>"),
+      inherit = FALSE,
+      showlegend = FALSE
+    )
+  }
+
+  p <- add_kobe_quadrant(
+    p, c(0, 1, 1, 0, 0), c(1, 1, ymax2, ymax2, 1),
+    "rgba(0, 210, 0, 0.10)", "Green quadrant",
+    "Healthy stock: biomass is above BMSY and fishing pressure is below FMSY."
+  )
+  p <- add_kobe_quadrant(
+    p, c(0, 1, 1, 0, 0), c(0, 0, 1, 1, 0),
+    "rgba(255, 235, 0, 0.10)", "Yellow quadrant",
+    "Overfished, but fishing pressure is below FMSY and has been reduced to safer levels."
+  )
+  p <- add_kobe_quadrant(
+    p, c(1, xmax2, xmax2, 1, 1), c(1, 1, ymax2, ymax2, 1),
+    "rgba(255, 165, 0, 0.10)", "Orange quadrant",
+    "Biomass is adequate, but fishing pressure is above FMSY and overfishing is occurring."
+  )
+  p <- add_kobe_quadrant(
+    p, c(1, xmax2, xmax2, 1, 1), c(0, 0, 1, 1, 0),
+    "rgba(255, 0, 0, 0.10)", "Red quadrant",
+    "Critical zone: the stock is overfished and fishing pressure is above FMSY."
+  )
+
+  add_status_points <- function(plot, data, symbol, size, line_width, opacity) {
+    if (nrow(data) == 0) return(plot)
+
+    for (status_colour in unique(data$status_hex)) {
+      status_df <- dplyr::filter(
+        data,
+        status_hex == status_colour,
+        !is.na(F_FMSY),
+        !is.na(SSB_MSYBtrigger)
+      )
+      if (nrow(status_df) == 0) next
+      plot <- plotly::add_markers(
+        plot, data = status_df,
+        x = ~F_FMSY, y = ~SSB_MSYBtrigger,
+        marker = list(
+          symbol = symbol, size = size,
+          color = rep(status_colour, nrow(status_df)),
+          line = list(color = rep("grey20", nrow(status_df)),
+                      width = line_width)
+        ),
+        customdata = ~StockKeyLabel,
+        hovertemplate = paste0(
+          "<b>%{customdata}</b><br>",
+          "F/FMSY: %{x:.2f}<br>",
+          "SSB/MSY Btrigger: %{y:.2f}<br>",
+          "Status: ", status_df$Status,
+          "<extra></extra>"
+        ),
+        showlegend = FALSE,
+        opacity = opacity
+      )
+      for (row_index in seq_len(nrow(status_df))) {
+        stock_annotations[[length(stock_annotations) + 1]] <<- list(
+          x = status_df$F_FMSY[[row_index]],
+          y = status_df$SSB_MSYBtrigger[[row_index]],
+          xref = "x", yref = "y",
+          text = status_df$StockKeyLabel[[row_index]],
+          xanchor = "left", yanchor = "middle", xshift = 18,
+          showarrow = FALSE,
+          font = list(size = 10, color = "grey20")
+        )
+      }
+    }
+    plot
+  }
+
+  p <- add_status_points(p, normal_df, "circle", 12, 1, 0.7)
+  p <- add_status_points(p, proxy_df, "circle-open", 12, 1.8, 0.9)
+
+  # Neutral legend entries describe the two reference-point symbols.
+  legend_defs <- list(
+    "Reference point" = list(symbol = "circle", width = 1),
+    "Proxy reference point" = list(symbol = "circle-open", width = 1.8)
+  )
+  for (nm in names(legend_defs)) {
+    def <- legend_defs[[nm]]
+    p <- plotly::add_markers(
+      p, x = -1, y = -1, xaxis = "x2", yaxis = "y2", name = nm,
+      marker = list(symbol = def$symbol, size = 12, color = "black",
+            line = list(color = "black", width = def$width)),
+      inherit = FALSE, showlegend = TRUE, hoverinfo = "skip"
+    )
+  }
+
+  plotly::layout(
+    p,
+    xaxis = list(title = "F/FMSY", range = c(0, xmax2), zeroline = FALSE),
+    yaxis = list(title = "SSB/MSY Btrigger", range = c(0, ymax2), zeroline = FALSE),
+    xaxis2 = list(overlaying = "x", visible = FALSE, range = c(0, 1),
+            fixedrange = TRUE, autorange = FALSE),
+    yaxis2 = list(overlaying = "y", visible = FALSE, range = c(0, 1),
+            fixedrange = TRUE, autorange = FALSE),
+    shapes = list(
+      list(type = "line", x0 = 1, x1 = 1, y0 = 0, y1 = ymax2,
+           line = list(color = "grey60", dash = "dash")),
+      list(type = "line", x0 = 0, x1 = xmax2, y0 = 1, y1 = 1,
+           line = list(color = "grey60", dash = "dash"))
+    ),
+    legend = list(title = list(text = "ICES reference point"),
+                  x = 0.98, y = 0.98, xanchor = "right", yanchor = "top",
+                  bgcolor = "rgba(255,255,255,0.85)",
+                  bordercolor = "grey85", borderwidth = 1),
+    hovermode = "closest",
+    margin = list(l = 90, r = 30, t = 30, b = 70),
+    annotations = c(stock_annotations, list(list(
+      x = 1, y = -0.14, xref = "paper", yref = "paper",
+      xanchor = "right", yanchor = "top", showarrow = FALSE,
+      text = paste0("ICES Stock Assessment Database, ",
+                    format(Sys.Date(), "%d-%b-%y"), ". ICES, Copenhagen"),
+      font = list(size = 10)
+    )))
+  ) |>
+    plotly::config(
+      toImageButtonOptions = list(
+        filename = paste0("Kobe_", format(Sys.Date(), "%d-%b-%y")),
+        format = "png",
+        scale = 3
+      )
+    )
 }
