@@ -1481,3 +1481,370 @@ plot_kobe_app_plotly <- function(x, guild, return_data = FALSE) {
       )
     )
 }
+
+
+
+
+### version that does not have the quadrants colors, just new mapping for colors
+
+
+plot_kobe_app_plotly_v2 <- function(
+    x,
+    guild,
+    return_data = FALSE,
+    size_by_catches = FALSE,
+    min_point_size = 10,
+    max_point_size = 26
+) {
+
+  # 1. Validate marker sizes and filter stocks
+  if (length(min_point_size) != 1 || length(max_point_size) != 1 ||
+      !is.numeric(min_point_size) || !is.numeric(max_point_size) ||
+      !is.finite(min_point_size) || !is.finite(max_point_size) ||
+      min_point_size <= 0 || max_point_size <= min_point_size) {
+    stop("Require 0 < min_point_size < max_point_size.")
+  }
+
+  df <- if (identical(guild, "All")) {
+    x
+  } else {
+    dplyr::filter(x, FisheriesGuild %in% guild)
+  }
+
+  # 2. Proxy flags
+  if (!"F_proxy" %in% names(df)) df$F_proxy <- FALSE
+  if (!"B_proxy" %in% names(df)) df$B_proxy <- FALSE
+
+  df <- dplyr::mutate(
+    df,
+    ProxyFlag = dplyr::if_else(
+      (F_proxy %in% TRUE) | (B_proxy %in% TRUE),
+      "Proxy reference point", "Reference point"
+    )
+  )
+
+  # 3. Colours depend on plotted coordinates, not the Status column
+  df <- dplyr::mutate(
+    df,
+    KobeStatus = dplyr::case_when(
+      !is.finite(F_FMSY) | !is.finite(SSB_MSYBtrigger) ~ "Unknown",
+      F_FMSY <= 1 & SSB_MSYBtrigger >= 1 ~ "Green",
+      F_FMSY > 1 & SSB_MSYBtrigger < 1 ~ "Red",
+      TRUE ~ "Orange"
+    ),
+    KobeDescription = dplyr::case_when(
+      KobeStatus == "Green" ~
+        "Biomass above threshold; fishing pressure sustainable",
+      KobeStatus == "Red" ~
+        "Biomass below threshold; overfishing occurring",
+      KobeStatus == "Orange" & F_FMSY > 1 ~
+        "Biomass above threshold; overfishing occurring",
+      KobeStatus == "Orange" & SSB_MSYBtrigger < 1 ~
+        "Biomass below threshold; fishing pressure below threshold",
+      TRUE ~ "Status unknown"
+    )
+  )
+
+  status_pal <- c(
+    Green = "#4daf4a",
+    Orange = "#ff8c00",
+    Red = "#e41a1c",
+    Unknown = "#d3d3d3"
+  )
+  df$status_hex <- unname(status_pal[df$KobeStatus])
+
+  # 4. Use catches in the ecoregion, falling back to landings
+  df <- dplyr::mutate(
+    df,
+    CatchSizeValue = dplyr::coalesce(
+      dplyr::if_else(
+        is.finite(Catches_in_ecoregion) & Catches_in_ecoregion >= 0,
+        Catches_in_ecoregion, NA_real_
+      ),
+      dplyr::if_else(
+        is.finite(Landings_in_ecoregion) & Landings_in_ecoregion >= 0,
+        Landings_in_ecoregion, NA_real_
+      )
+    ),
+    CatchSizeSource = dplyr::case_when(
+      is.finite(Catches_in_ecoregion) & Catches_in_ecoregion >= 0 ~
+        "Catches in ecoregion",
+      is.finite(Landings_in_ecoregion) & Landings_in_ecoregion >= 0 ~
+        "Landings in ecoregion",
+      TRUE ~ "No catch/landing data"
+    )
+  )
+
+  # Only complete, nonnegative coordinates correspond to plotted stocks
+  visible_rows <- with(
+    df,
+    is.finite(F_FMSY) & is.finite(SSB_MSYBtrigger) &
+      F_FMSY >= 0 & SSB_MSYBtrigger >= 0
+  )
+
+  visible_catches <- df$CatchSizeValue[
+    visible_rows & is.finite(df$CatchSizeValue)
+  ]
+  c_min <- if (length(visible_catches)) min(visible_catches) else NA_real_
+  c_max <- if (length(visible_catches)) max(visible_catches) else NA_real_
+
+  # 5. Square-root size scaling; same formula is used for size legend
+  scale_catches <- function(values) {
+    result <- rep(min_point_size, length(values))
+    valid <- is.finite(values) & values >= 0
+
+    if (!any(valid) || !is.finite(c_min)) return(result)
+
+    if (c_min == c_max) {
+      result[valid] <- (min_point_size + max_point_size) / 2
+      return(result)
+    }
+
+    result[valid] <- min_point_size +
+      (sqrt(values[valid]) - sqrt(c_min)) /
+      (sqrt(c_max) - sqrt(c_min)) *
+      (max_point_size - min_point_size)
+
+    pmax(min_point_size, pmin(max_point_size, result))
+  }
+
+  df$point_size <- if (isTRUE(size_by_catches)) {
+    scale_catches(df$CatchSizeValue)
+  } else {
+    rep(12, nrow(df))
+  }
+
+  if (isTRUE(return_data)) return(df)
+
+  # 6. Dynamic LINEAR axes with independent 10% padding
+  axis_padding <- 0.10
+  plot_df <- df[visible_rows, , drop = FALSE]
+
+  if (nrow(plot_df) > 0) {
+    xmin <- min(c(plot_df$F_FMSY, 1))
+    xmax <- max(c(plot_df$F_FMSY, 1))
+    ymin <- min(c(plot_df$SSB_MSYBtrigger, 1))
+    ymax <- max(c(plot_df$SSB_MSYBtrigger, 1))
+
+    xpad <- max(0.1, (xmax - xmin) * axis_padding)
+    ypad <- max(0.1, (ymax - ymin) * axis_padding)
+
+    x_range <- c(max(0, xmin - xpad), xmax + xpad)
+    y_range <- c(max(0, ymin - ypad), ymax + ypad)
+  } else {
+    x_range <- c(0, 2)
+    y_range <- c(0, 2)
+  }
+
+  # 7. Initialize separate marker groups and annotations
+  normal_df <- dplyr::filter(df, ProxyFlag == "Reference point")
+  proxy_df <- dplyr::filter(df, ProxyFlag == "Proxy reference point")
+  p <- plotly::plot_ly()
+  stock_annotations <- list()
+
+  # 8. Add stocks, with colours and per-stock hover labels
+  add_status_points <- function(plot, data, symbol, line_width, opacity) {
+    if (nrow(data) == 0) return(plot)
+
+    for (status_name in unique(data$KobeStatus)) {
+      status_df <- dplyr::filter(
+        data,
+        KobeStatus == status_name,
+        is.finite(F_FMSY), is.finite(SSB_MSYBtrigger),
+        F_FMSY >= 0, SSB_MSYBtrigger >= 0
+      )
+      if (nrow(status_df) == 0) next
+
+      status_colour <- status_pal[[status_name]]
+
+      catch_label <- vapply(status_df$CatchSizeValue, function(value) {
+        if (!is.finite(value)) return("NA")
+        format(round(value, 0), big.mark = ",", scientific = FALSE, trim = TRUE)
+      }, character(1))
+
+      status_df$hover_text <- paste0(
+        "<b>", status_df$StockKeyLabel, "</b><br>",
+        "F/Fref: ", round(status_df$F_FMSY, 2), "<br>",
+        "B/Bref: ", round(status_df$SSB_MSYBtrigger, 2), "<br>",
+        "Kobe status: ", status_df$KobeStatus, "<br>",
+        status_df$KobeDescription, "<br>",
+        status_df$CatchSizeSource, ": ", catch_label
+      )
+
+      marker_line <- if (identical(symbol, "circle-open")) {
+        list(color = status_colour, width = line_width)
+      } else {
+        # Keep the requested filled-circle outline width of 0.1
+        list(color = "#333333", width = 0.1)
+      }
+
+      plot <- plotly::add_markers(
+        plot,
+        data = status_df,
+        x = ~F_FMSY,
+        y = ~SSB_MSYBtrigger,
+        marker = list(
+          symbol = symbol,
+          size = status_df$point_size,
+          color = status_colour,
+          line = marker_line
+        ),
+        customdata = ~hover_text,
+        hovertemplate = "%{customdata}<extra></extra>",
+        showlegend = FALSE,
+        opacity = opacity,
+        inherit = FALSE
+      )
+
+      for (i in seq_len(nrow(status_df))) {
+        stock_annotations[[length(stock_annotations) + 1]] <<- list(
+          x = status_df$F_FMSY[[i]],
+          y = status_df$SSB_MSYBtrigger[[i]],
+          xref = "x", yref = "y",
+          text = status_df$StockKeyLabel[[i]],
+          xanchor = "left", yanchor = "middle",
+          xshift = status_df$point_size[[i]] / 2 + 8,
+          showarrow = FALSE,
+          font = list(size = 10, color = "#333333")
+        )
+      }
+    }
+    plot
+  }
+
+  p <- add_status_points(p, normal_df, "circle", 0.1, 0.75)
+  p <- add_status_points(p, proxy_df, "circle-open", 2, 1)
+
+  # 9. Reference-point type legend
+  legend_defs <- list(
+    "Reference point" = list(symbol = "circle", width = 0.1),
+    "Proxy reference point" = list(symbol = "circle-open", width = 1.8)
+  )
+
+  for (nm in names(legend_defs)) {
+    def <- legend_defs[[nm]]
+    p <- plotly::add_markers(
+      p,
+      x = -1, y = -1,
+      xaxis = "x2", yaxis = "y2",
+      name = nm,
+      marker = list(
+        symbol = def$symbol, size = 12, color = "#000000",
+        line = list(color = "#000000", width = def$width)
+      ),
+      legendgroup = "reference_type",
+      showlegend = TRUE,
+      hoverinfo = "skip",
+      inherit = FALSE
+    )
+  }
+
+  # 10. Marker-size legend, only with catch-based sizing
+  if (isTRUE(size_by_catches) && length(visible_catches) > 0) {
+    legend_values <- unique(as.numeric(stats::quantile(
+      visible_catches,
+      probs = c(0, 0.5, 1), na.rm = TRUE, names = FALSE
+    )))
+    legend_sizes <- scale_catches(legend_values)
+
+    for (i in seq_along(legend_values)) {
+      legend_label <- paste0(
+        format(round(legend_values[i], 0),
+               big.mark = ",", scientific = FALSE, trim = TRUE),
+        " tonnes"
+      )
+
+      p <- plotly::add_trace(
+        p,
+        x = 0, y = 0,
+        type = "scatter", mode = "markers",
+        name = legend_label,
+        marker = list(
+          symbol = "circle",
+          size = legend_sizes[i],
+          color = "rgba(140,140,140,0.45)",
+          line = list(color = "#666666", width = 1)
+        ),
+        legendgroup = "catch_size",
+        legendgrouptitle = list(
+          text = "Catches / landings in ecoregion"
+        ),
+        visible = "legendonly",
+        showlegend = TRUE,
+        hoverinfo = "skip",
+        inherit = FALSE
+      )
+    }
+  }
+
+  # 11. Footer annotation
+  footer_annotation <- list(
+    x = 1, y = -0.14,
+    xref = "paper", yref = "paper",
+    xanchor = "right", yanchor = "top",
+    showarrow = FALSE,
+    text = paste0(
+      "ICES Stock Assessment Database, ",
+      format(Sys.Date(), "%d-%b-%y"),
+      ". ICES, Copenhagen"
+    ),
+    font = list(size = 10)
+  )
+
+  # 12. Plot layout
+  p <- plotly::layout(
+    p,
+    paper_bgcolor = "white",
+    plot_bgcolor = "white",
+    xaxis = list(title = "F/Fref", range = x_range, zeroline = FALSE),
+    yaxis = list(title = "B/Bref", range = y_range, zeroline = FALSE),
+    xaxis2 = list(
+      overlaying = "x", visible = FALSE, range = c(0, 1),
+      fixedrange = TRUE, autorange = FALSE
+    ),
+    yaxis2 = list(
+      overlaying = "y", visible = FALSE, range = c(0, 1),
+      fixedrange = TRUE, autorange = FALSE
+    ),
+    shapes = list(
+      list(
+        type = "line", x0 = 1, x1 = 1,
+        y0 = y_range[1], y1 = y_range[2],
+        line = list(color = "#4D4D4D", dash = "dash")
+      ),
+      list(
+        type = "line", x0 = x_range[1], x1 = x_range[2],
+        y0 = 1, y1 = 1,
+        line = list(color = "#4D4D4D", dash = "dash")
+      )
+    ),
+    legend = list(
+      title = list(text = "ICES reference point"),
+      x = if (isTRUE(size_by_catches)) 1.02 else 0.98,
+      y = 0.98,
+      xanchor = if (isTRUE(size_by_catches)) "left" else "right",
+      yanchor = "top",
+      bgcolor = "rgba(255,255,255,0.90)",
+      bordercolor = "#D9D9D9",
+      borderwidth = 1,
+      tracegroupgap = 18
+    ),
+    hovermode = "closest",
+    margin = list(
+      l = 90,
+      r = if (isTRUE(size_by_catches)) 280 else 30,
+      t = 30, b = 70
+    ),
+    annotations = c(stock_annotations, list(footer_annotation))
+  )
+
+  # 13. Export configuration
+  plotly::config(
+    p,
+    toImageButtonOptions = list(
+      filename = paste0("Kobe_", format(Sys.Date(), "%d-%b-%y")),
+      format = "png",
+      scale = 3
+    )
+  )
+}

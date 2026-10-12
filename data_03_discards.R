@@ -6,7 +6,7 @@ sag <- getSAG_ecoregion_new("Bay of Biscay and the Iberian Coast")
 
 
 
-sid <- getSID(2025, "Bay of Biscay and the Iberian Coast")
+sid <- getSID(2026, "Bay of Biscay and the Iberian Coast")
 
 
 
