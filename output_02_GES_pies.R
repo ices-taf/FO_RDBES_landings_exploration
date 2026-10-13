@@ -351,12 +351,12 @@ htmlwidgets::saveWidget(
       )
 
 head(catch_current_adj)
-mkdir("./output/kobe_interactive/Bref_Fref/")
+mkdir("./output/kobe_interactive/Bref_Fref-v2/")
 p6 <- plot_kobe_app_plotly_v2(catch_current_adj, "benthic", size_by_catches = TRUE)
 file_name <- "kobe_benthic_adjusted_with_RDBES_plotly_V2_BI"
 htmlwidgets::saveWidget(
         widget = p6,
-        file = file.path("./output/kobe_interactive/Bref_Fref/", paste0(file_name,"-", Sys.Date(), ".html")),
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
         selfcontained = TRUE
       )
 
@@ -364,7 +364,7 @@ p7 <- plot_kobe_app_plotly_v2(catch_current_adj, "demersal", size_by_catches = T
 file_name <- "kobe_demersal_adjusted_with_RDBES_plotly_V2_BI"
 htmlwidgets::saveWidget(
         widget = p7,
-        file = file.path("./output/kobe_interactive/Bref_Fref/", paste0(file_name,"-", Sys.Date(), ".html")),
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
         selfcontained = TRUE
       )
 
@@ -372,7 +372,7 @@ p8 <- plot_kobe_app_plotly_v2(catch_current_adj, "elasmobranch", size_by_catches
 file_name <- "kobe_elasmobranch_adjusted_with_RDBES_plotly_V2_BI"
 htmlwidgets::saveWidget(
         widget = p8,
-        file = file.path("./output/kobe_interactive/Bref_Fref/", paste0(file_name,"-", Sys.Date(), ".html")),
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
         selfcontained = TRUE
       )
 
@@ -380,7 +380,7 @@ p9 <- plot_kobe_app_plotly_v2(catch_current_adj, "pelagic", size_by_catches = TR
 file_name <- "kobe_pelagic_adjusted_with_RDBES_plotly_V2_BI"
 htmlwidgets::saveWidget(
         widget = p9,
-        file = file.path("./output/kobe_interactive/Bref_Fref/", paste0(file_name,"-", Sys.Date(), ".html")),
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
         selfcontained = TRUE
       )
 
@@ -388,7 +388,7 @@ p10 <- plot_kobe_app_plotly_v2(catch_current_adj, "shellfish", size_by_catches =
 file_name <- "kobe_shellfish_adjusted_with_RDBES_plotly_V2_BI"
 htmlwidgets::saveWidget(
         widget = p10,
-        file = file.path("./output/kobe_interactive/Bref_Fref/", paste0(file_name,"-", Sys.Date(), ".html")),
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
         selfcontained = TRUE
       )
 
@@ -396,7 +396,41 @@ p11 <- plot_kobe_app_plotly_v2(catch_current_adj, "All", size_by_catches = TRUE)
 file_name <- "kobe_all_adjusted_with_RDBES_plotly_V2_BI"
 htmlwidgets::saveWidget(
         widget = p11,
-        file = file.path("./output/kobe_interactive/Bref_Fref/", paste0(file_name,"-", Sys.Date(), ".html")),
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
         selfcontained = TRUE
       )
 
+names(catch_current_adj)
+head(catch_current_adj) %>% print(width = Inf)
+
+
+p <- plot_GES_pies_plotly(clean_status, catch_current_adj)
+file_name <- "GES_pies_catches_guilds_adjusted_with_plotly_RDBES_BI"
+htmlwidgets::saveWidget(
+        widget = p,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )
+
+file_name <- "status_prop_pies_catches_guilds_plotly_V2_BI"
+p1 <- plot_status_prop_pies_plotly_v2(
+  catch_current_v2,
+  return_data = FALSE
+)
+htmlwidgets::saveWidget(
+        widget = p1,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )
+
+
+file_name <- "GES_pies_catches_guilds_adjusted_with_plotly_RDBES_BI_v2"
+p2 <- plot_GES_pies_plotly_v2(
+  x = catch_current_v2,
+  y = catch_current_adj
+)
+htmlwidgets::saveWidget(
+        widget = p2,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )

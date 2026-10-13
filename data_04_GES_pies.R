@@ -7,6 +7,7 @@ SAG_Settings <- getSAG_SettingsEcoregion("Bay of Biscay and the Iberian Coast")
 sid <- getSID(2026, "Bay of Biscay and the Iberian Coast")
 sag <- getSAG_ecoregion_new("Bay of Biscay and the Iberian Coast")
 catch_current <- stockstatus_CLD_current_proxy(add_proxyRefPoints(format_sag(sag, sid),  sag_settings = SAG_Settings))
+catch_current_v2 <- stockstatus_CLD_current_proxy(add_proxyRefPoints_v2(format_sag(sag, sid),  sag_settings = SAG_Settings))
 
 source("data_05_stock_status.R")
 

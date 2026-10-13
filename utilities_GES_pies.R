@@ -10,7 +10,17 @@ getSAG_SettingsEcoregion <- function(Ecoregion) {
         return(sag_settings)
 }
 
-
+# test <- getSAG_SettingsEcoregion("Celtic Seas")
+# test %>%
+#   dplyr::filter(
+#     settingKey == 51,
+#     SAGChartKey %in% c(3, 4)
+#   ) %>%
+#   dplyr::select(
+#     AssessmentKey,
+#     SAGChartKey,
+#     settingValue
+#   ) 
 
 extract_custom_refpoint_choices <- function(sag_settings) {
   out <- sag_settings %>%
@@ -40,6 +50,32 @@ extract_custom_refpoint_choices <- function(sag_settings) {
       choice_4 = as.integer(choice_4)
     ) %>%
     dplyr::select(AssessmentKey, choice_3, choice_4)
+}
+
+extract_custom_refpoint_choices_v2 <- function(sag_settings) {
+
+  sag_settings %>%
+    dplyr::filter(
+      settingKey == 51,
+      SAGChartKey %in% c(3, 4)
+    ) %>%
+    dplyr::transmute(
+      AssessmentKey = as.integer(AssessmentKey),
+      SAGChartKey = as.integer(SAGChartKey),
+      settingValue = as.character(settingValue)
+    ) %>%
+    tidyr::separate_rows(
+      settingValue,
+      sep = ","
+    ) %>%
+    dplyr::mutate(
+      settingValue = trimws(settingValue)
+    ) %>%
+    dplyr::filter(
+      !is.na(settingValue),
+      nzchar(settingValue)
+    ) %>%
+    dplyr::distinct()
 }
 
 #' Apply proxy reference points to formatted SAG data
@@ -181,6 +217,182 @@ add_proxyRefPoints <- function(sag_formatted, sag_settings) {
     )
 }
 
+# Select precautionary reference points from SAG settings.
+# F: lowest positive, finite reference value.
+# B: highest positive, finite reference value.
+# Includes the original FMSY / MSYBtrigger as candidates.
+# All numeric custom indices selected for SAG chart 3 (F) or 4 (B)
+# are compared; names are not filtered.
+# Named setting tokens such as "Fpa" cannot be mapped to CustomRefPointValue1-4
+# by index and are reported in a warning, not silently assigned.
+
+add_proxyRefPoints_v2 <- function(sag_formatted, sag_settings) {
+
+  custom_indices <- 1:4
+  value_cols <- paste0("CustomRefPointValue", custom_indices)
+  name_cols  <- paste0("CustomRefPointName", custom_indices)
+
+  required <- c("AssessmentKey", "FMSY", "MSYBtrigger", value_cols, name_cols)
+  missing <- setdiff(required, names(sag_formatted))
+  if (length(missing) > 0) {
+    stop("Missing columns in sag_formatted: ", paste(missing, collapse = ", "))
+  }
+
+  settings_required <- c("AssessmentKey", "settingKey", "SAGChartKey", "settingValue")
+  settings_missing <- setdiff(settings_required, names(sag_settings))
+  if (length(settings_missing) > 0) {
+    stop("Missing columns in sag_settings: ",
+         paste(settings_missing, collapse = ", "))
+  }
+
+  # Give each assessment row its own ID so repeated AssessmentKeys in the
+  # original input are not accidentally merged or duplicated.
+  df <- sag_formatted |>
+    dplyr::mutate(
+      .kobe_row_id = dplyr::row_number(),
+      .assessment_key = as.character(AssessmentKey),
+      dplyr::across(
+        dplyr::all_of(c("FMSY", "MSYBtrigger", value_cols)),
+        ~ suppressWarnings(as.numeric(as.character(.x)))
+      ),
+      FMSY_original = FMSY,
+      MSYBtrigger_original = MSYBtrigger
+    )
+
+  # Keep EVERY setting choice, including comma-separated lists such as 1,2,3.
+  all_choices <- sag_settings |>
+    dplyr::filter(
+      as.character(settingKey) == "51",
+      as.character(SAGChartKey) %in% c("3", "4")
+    ) |>
+    dplyr::transmute(
+      .assessment_key = as.character(AssessmentKey),
+      SAGChartKey = as.integer(as.character(SAGChartKey)),
+      token = as.character(settingValue)
+    ) |>
+    tidyr::separate_rows(token, sep = ",") |>
+    dplyr::mutate(token = trimws(token)) |>
+    dplyr::filter(!is.na(token), nzchar(token))
+
+  # An index from 1 to 4 maps to CustomRefPointValue1-4.
+  # A named token (e.g. "Fpa") requires a different mapping and is not guessed.
+  ignored_tokens <- setdiff(unique(all_choices$token), as.character(custom_indices))
+  if (length(ignored_tokens) > 0) {
+    warning(
+      "Skipping SAG settings that are not custom-point indices 1-4: ",
+      paste(ignored_tokens, collapse = ", "),
+      ". These would need an explicit value mapping.",
+      call. = FALSE
+    )
+  }
+
+  choices <- all_choices |>
+    dplyr::filter(token %in% as.character(custom_indices)) |>
+    dplyr::mutate(custom_index = as.integer(token)) |>
+    dplyr::distinct(.assessment_key, SAGChartKey, custom_index)
+
+  # Build one row per custom reference point AND chart, per assessment row.
+  # Joining on chart key prevents a many-to-many join.
+  custom_values <- dplyr::bind_rows(lapply(c(3L, 4L), function(chart) {
+    dplyr::bind_rows(lapply(custom_indices, function(i) {
+      df |>
+        dplyr::transmute(
+          .kobe_row_id,
+          .assessment_key,
+          SAGChartKey = chart,
+          custom_index = i,
+          candidate_value = .data[[value_cols[i]]],
+          candidate_name = as.character(.data[[name_cols[i]]])
+        )
+    }))
+  }))
+
+  # Match only the custom indices selected for that assessment's F/B chart.
+  selected <- custom_values |>
+    dplyr::inner_join(
+      choices,
+      by = c(".assessment_key", "SAGChartKey", "custom_index")
+    ) |>
+    dplyr::filter(is.finite(candidate_value), candidate_value > 0) |>
+    dplyr::mutate(candidate_name = dplyr::na_if(trimws(candidate_name), ""))
+
+  # Lowest F and highest B among ALL selected numerical custom candidates.
+  best_f <- selected |>
+    dplyr::filter(SAGChartKey == 3) |>
+    dplyr::arrange(.kobe_row_id, candidate_value, custom_index) |>
+    dplyr::group_by(.kobe_row_id) |>
+    dplyr::slice_head(n = 1) |>
+    dplyr::ungroup() |>
+    dplyr::transmute(
+      .kobe_row_id,
+      FMSY_custom_candidate = candidate_value,
+      FMSY_candidate_name = candidate_name
+    )
+
+  best_b <- selected |>
+    dplyr::filter(SAGChartKey == 4) |>
+    dplyr::arrange(.kobe_row_id, dplyr::desc(candidate_value), custom_index) |>
+    dplyr::group_by(.kobe_row_id) |>
+    dplyr::slice_head(n = 1) |>
+    dplyr::ungroup() |>
+    dplyr::transmute(
+      .kobe_row_id,
+      MSYB_custom_candidate = candidate_value,
+      MSYB_candidate_name = candidate_name
+    )
+
+  choose_ref <- function(original, custom, direction) {
+    original[!is.finite(original) | original <= 0] <- NA_real_
+    custom[!is.finite(custom) | custom <= 0] <- NA_real_
+    if (direction == "min") {
+      selected_value <- pmin(original, custom, na.rm = TRUE)
+    } else {
+      selected_value <- pmax(original, custom, na.rm = TRUE)
+    }
+    selected_value[!is.finite(selected_value)] <- NA_real_
+    selected_value
+  }
+
+  df |>
+    dplyr::left_join(best_f, by = ".kobe_row_id") |>
+    dplyr::left_join(best_b, by = ".kobe_row_id") |>
+    dplyr::mutate(
+      FMSY = choose_ref(FMSY_original, FMSY_custom_candidate, "min"),
+      MSYBtrigger = choose_ref(
+        MSYBtrigger_original, MSYB_custom_candidate, "max"
+      ),
+      # On ties, the original reference is preferred.
+      FMSY_is_proxy = is.finite(FMSY_custom_candidate) &
+        (!is.finite(FMSY_original) | FMSY_original <= 0 |
+           FMSY_custom_candidate < FMSY_original),
+      MSYB_is_proxy = is.finite(MSYB_custom_candidate) &
+        (!is.finite(MSYBtrigger_original) | MSYBtrigger_original <= 0 |
+           MSYB_custom_candidate > MSYBtrigger_original),
+      FMSY_proxy_name = dplyr::if_else(
+        FMSY_is_proxy,
+        dplyr::coalesce(FMSY_candidate_name, "Unnamed custom reference point"),
+        NA_character_
+      ),
+      MSYB_proxy_name = dplyr::if_else(
+        MSYB_is_proxy,
+        dplyr::coalesce(MSYB_candidate_name, "Unnamed custom reference point"),
+        NA_character_
+      ),
+      FMSY_refpoint_source = dplyr::case_when(
+        FMSY_is_proxy ~ "Custom",
+        is.finite(FMSY) ~ "Original",
+        TRUE ~ "Missing"
+      ),
+      MSYB_refpoint_source = dplyr::case_when(
+        MSYB_is_proxy ~ "Custom",
+        is.finite(MSYBtrigger) ~ "Original",
+        TRUE ~ "Missing"
+      )
+    ) |>
+    dplyr::select(-.kobe_row_id, -.assessment_key)
+}
+
+
 stockstatus_CLD_current_proxy <- function(x) {
   
   # --- Ensure proxy columns exist
@@ -252,7 +464,7 @@ stockstatus_CLD_current_proxy <- function(x) {
   df4
 }
 
-icesFO::plot_GES_pies
+
 
 plot_GES_pies <- function(x, y, return_data = FALSE, width_px = 800) {
   # --- Responsive sizes
@@ -601,6 +813,9 @@ plot_GES_pies_plotly <- function(x, y, return_data = FALSE) {
       )
     )
 }
+
+
+
 
 
 getStatusWebService <- function(Ecoregion, sid) {
@@ -1845,6 +2060,759 @@ plot_kobe_app_plotly_v2 <- function(
       filename = paste0("Kobe_", format(Sys.Date(), "%d-%b-%y")),
       format = "png",
       scale = 3
+    )
+  )
+}
+
+
+# Interactive summary of precautionary stock status by fisheries guild.
+# Requires ratios calculated using the SELECTED (precautionary) references.
+# This code does NOT use SAG's FishingPressure, StockSize or Status columns.
+# It counts stocks; it does not weight slices by catch volume.
+
+prepare_precautionary_status_pies <- function(df) {
+
+  required <- c(
+    "StockKeyLabel", "FisheriesGuild",
+    "FMSY", "MSYBtrigger", "F_FMSY", "SSB_MSYBtrigger"
+  )
+  missing_cols <- setdiff(required, names(df))
+  if (length(missing_cols) > 0) {
+    stop("Missing columns: ", paste(missing_cols, collapse = ", "))
+  }
+
+  stock_df <- df |>
+    dplyr::transmute(
+      StockKeyLabel = as.character(StockKeyLabel),
+      FisheriesGuild = as.character(FisheriesGuild),
+      FMSY = suppressWarnings(as.numeric(as.character(FMSY))),
+      MSYBtrigger = suppressWarnings(as.numeric(as.character(MSYBtrigger))),
+      F_FMSY = suppressWarnings(as.numeric(as.character(F_FMSY))),
+      SSB_MSYBtrigger = suppressWarnings(
+        as.numeric(as.character(SSB_MSYBtrigger))
+      )
+    ) |>
+    dplyr::filter(!is.na(StockKeyLabel), nzchar(StockKeyLabel)) |>
+    dplyr::mutate(
+      FisheriesGuild = dplyr::if_else(
+        is.na(FisheriesGuild) | !nzchar(FisheriesGuild),
+        "Unknown", FisheriesGuild
+      )
+    ) |>
+    dplyr::distinct()
+
+  if (nrow(stock_df) == 0L) {
+    stop("No stocks in the supplied data.")
+  }
+
+  # A stock should contribute once per indicator. Do not silently pick
+  # between conflicting rows or count it twice.
+  duplicated_stocks <- stock_df |>
+    dplyr::count(StockKeyLabel, name = "n") |>
+    dplyr::filter(n > 1L)
+
+  if (nrow(duplicated_stocks) > 0L) {
+    stop(
+      "Multiple non-identical rows exist for StockKeyLabel: ",
+      paste(utils::head(duplicated_stocks$StockKeyLabel, 8L),
+            collapse = ", "),
+      ". Supply one row per stock (e.g., the latest assessment)."
+    )
+  }
+
+  # F/Fref > 1 is red. B/Bref < 1 is red.
+  # Exact equality (1) is grouped with GREEN.
+  # Missing/invalid references or ratios -> GREY.
+  stock_df <- stock_df |>
+    dplyr::mutate(
+      FStatus = dplyr::case_when(
+        !is.finite(FMSY) | FMSY <= 0 ~ "GREY",
+        !is.finite(F_FMSY) | F_FMSY < 0 ~ "GREY",
+        F_FMSY > 1 ~ "RED",
+        TRUE ~ "GREEN"
+      ),
+      BStatus = dplyr::case_when(
+        !is.finite(MSYBtrigger) | MSYBtrigger <= 0 ~ "GREY",
+        !is.finite(SSB_MSYBtrigger) | SSB_MSYBtrigger < 0 ~ "GREY",
+        SSB_MSYBtrigger < 1 ~ "RED",
+        TRUE ~ "GREEN"
+      ),
+      FReason = dplyr::case_when(
+        !is.finite(FMSY) | FMSY <= 0 ~ "F reference unavailable",
+        !is.finite(F_FMSY) | F_FMSY < 0 ~ "F/Fref unavailable",
+        F_FMSY > 1 ~ "Above F reference",
+        TRUE ~ "At or below F reference"
+      ),
+      BReason = dplyr::case_when(
+        !is.finite(MSYBtrigger) | MSYBtrigger <= 0 ~
+          "Biomass reference unavailable",
+        !is.finite(SSB_MSYBtrigger) | SSB_MSYBtrigger < 0 ~
+          "B/Bref unavailable",
+        SSB_MSYBtrigger < 1 ~ "Below biomass reference",
+        TRUE ~ "At or above biomass reference"
+      )
+    )
+
+  long_df <- dplyr::bind_rows(
+    stock_df |>
+      dplyr::transmute(
+        StockKeyLabel, FisheriesGuild,
+        Indicator = "Fref", Colour = FStatus,
+        Ratio = F_FMSY, Reference = FMSY, Reason = FReason
+      ),
+    stock_df |>
+      dplyr::transmute(
+        StockKeyLabel, FisheriesGuild,
+        Indicator = "Bref", Colour = BStatus,
+        Ratio = SSB_MSYBtrigger, Reference = MSYBtrigger,
+        Reason = BReason
+      )
+  )
+
+  # Duplicate into Total AFTER deduplication: each stock counted once
+  # in its guild and once in Total.
+  long_df <- dplyr::bind_rows(
+    long_df,
+    dplyr::mutate(long_df, FisheriesGuild = "Total")
+  )
+
+  long_df |>
+    dplyr::group_by(FisheriesGuild, Indicator, Colour) |>
+    dplyr::summarise(
+      COUNT = dplyr::n(),
+      stock_ids = list(sort(StockKeyLabel)),
+      .groups = "drop"
+    ) |>
+    dplyr::group_by(FisheriesGuild, Indicator) |>
+    dplyr::mutate(
+      total_stocks = sum(COUNT),
+      pct = 100 * COUNT / total_stocks
+    ) |>
+    dplyr::ungroup()
+}
+
+
+plot_status_prop_pies_plotly_v2 <- function(
+    df,
+    return_data = FALSE,
+    width_px = 800,
+    max_hover_stocks = 25
+) {
+
+  counts <- prepare_precautionary_status_pies(df)
+  if (isTRUE(return_data)) return(counts)
+
+  if (!is.numeric(width_px) || length(width_px) != 1L ||
+      !is.finite(width_px) || width_px <= 0) {
+    width_px <- 800
+  }
+  if (!is.numeric(max_hover_stocks) || length(max_hover_stocks) != 1L ||
+      !is.finite(max_hover_stocks) || max_hover_stocks < 1) {
+    stop("max_hover_stocks must be a positive number.")
+  }
+  max_hover_stocks <- as.integer(max_hover_stocks)
+
+  status_colors <- c(
+    GREEN = "#00B26D",
+    RED   = "#d93b1c",
+    GREY  = "#d3d3d3"
+  )
+  indicators <- c("Fref", "Bref")
+  headers <- c(
+    Fref = "Fishing pressure (F/Fref)",
+    Bref = "Stock size (B/Bref)"
+  )
+  desired_guilds <- c(
+    "Total", "benthic", "demersal", "pelagic",
+    "shellfish", "elasmobranch"
+  )
+  present_guilds <- unique(as.character(counts$FisheriesGuild))
+  guilds <- c(
+    intersect(desired_guilds, present_guilds),
+    sort(setdiff(present_guilds, desired_guilds))
+  )
+
+  format_stocks <- function(ids) {
+    shown <- utils::head(ids, max_hover_stocks)
+    out <- paste(shown, collapse = "<br>")
+    n_more <- length(ids) - length(shown)
+    if (n_more > 0L) {
+      out <- paste0(out, "<br>... and ", n_more, " more")
+    }
+    out
+  }
+
+  counts$hover_text <- vapply(seq_len(nrow(counts)), function(i) {
+    paste0(
+      "<b>", counts$FisheriesGuild[[i]], " — ",
+      headers[[counts$Indicator[[i]]]], "</b><br>",
+      "Status: ", counts$Colour[[i]], "<br>",
+      "Stocks: ", counts$COUNT[[i]], " / ", counts$total_stocks[[i]],
+      " (", sprintf("%.1f", counts$pct[[i]]), "%)<br><br>",
+      "<b>Stocks</b><br>", format_stocks(counts$stock_ids[[i]])
+    )
+  }, character(1))
+
+  n_rows <- length(guilds)
+  top <- 0.91
+  bottom <- 0.06
+  row_gap <- min(0.020, 0.12 / n_rows)
+  row_height <- (top - bottom - (n_rows - 1L) * row_gap) / n_rows
+
+  # Reserve a strip on the left for guild labels.
+  left <- 0.15
+  right <- 0.98
+  col_gap <- 0.08
+  col_width <- (right - left - col_gap) / 2
+
+  p <- plotly::plot_ly()
+  ann <- list()
+
+  # Stable legend, including colours missing from the displayed subset.
+  # Marker coordinates are off the hidden Cartesian axes, so they are
+  # not drawn on the pie grid even if the legend is clicked.
+  for (status in names(status_colors)) {
+    p <- plotly::add_trace(
+      p,
+      type = "scatter", mode = "markers",
+      x = -1, y = -1,
+      name = status,
+      marker = list(color = status_colors[[status]], size = 11),
+      legendgroup = status,
+      showlegend = TRUE,
+      hoverinfo = "skip",
+      inherit = FALSE
+    )
+  }
+
+  for (i in seq_along(guilds)) {
+    y1 <- top - (i - 1L) * (row_height + row_gap)
+    y0 <- y1 - row_height
+
+    ann[[length(ann) + 1L]] <- list(
+      x = 0.13, y = (y0 + y1) / 2,
+      xref = "paper", yref = "paper",
+      xanchor = "right", yanchor = "middle",
+      text = paste0("<b>", tools::toTitleCase(guilds[[i]]), "</b>"),
+      showarrow = FALSE, font = list(size = 12)
+    )
+
+    for (j in seq_along(indicators)) {
+      x0 <- left + (j - 1L) * (col_width + col_gap)
+      x1 <- x0 + col_width
+
+      sub <- counts[
+        counts$FisheriesGuild == guilds[[i]] &
+          counts$Indicator == indicators[[j]],
+        , drop = FALSE
+      ]
+      if (nrow(sub) == 0L) next
+
+      sub <- sub[match(c("GREEN", "RED", "GREY"), sub$Colour), , drop = FALSE]
+      sub <- sub[!is.na(sub$Colour), , drop = FALSE]
+
+      p <- plotly::add_trace(
+        p,
+        type = "pie",
+        labels = as.character(sub$Colour),
+        values = as.numeric(sub$COUNT),
+        text = as.character(sub$COUNT),
+        customdata = as.character(sub$hover_text),
+        hovertemplate = "%{customdata}<extra></extra>",
+        textinfo = "text",
+        textposition = "inside",
+        insidetextorientation = "horizontal",
+        sort = FALSE,
+        direction = "clockwise",
+        marker = list(
+          colors = unname(status_colors[as.character(sub$Colour)]),
+          line = list(color = "#FFFFFF", width = 1)
+        ),
+        domain = list(x = c(x0, x1), y = c(y0, y1)),
+        showlegend = FALSE,
+        inherit = FALSE
+      )
+    }
+  }
+
+  for (j in seq_along(indicators)) {
+    x0 <- left + (j - 1L) * (col_width + col_gap)
+    ann[[length(ann) + 1L]] <- list(
+      x = x0 + col_width / 2, y = 0.97,
+      xref = "paper", yref = "paper",
+      xanchor = "center", yanchor = "middle",
+      text = paste0("<b>", headers[[indicators[[j]]]], "</b>"),
+      showarrow = FALSE, font = list(size = 13)
+    )
+  }
+
+  ann[[length(ann) + 1L]] <- list(
+    x = 1, y = -0.035,
+    xref = "paper", yref = "paper",
+    xanchor = "right", yanchor = "top",
+    text = paste0(
+      "ICES Stock Assessment Database, ",
+      format(Sys.Date(), "%d-%b-%y"),
+      ". ICES, Copenhagen"
+    ),
+    showarrow = FALSE,
+    font = list(size = 10)
+  )
+
+  plot_height <- max(500, n_rows * max(145, min(180, width_px / 5)) + 100)
+
+  p <- plotly::layout(
+    p,
+    height = plot_height,
+    paper_bgcolor = "white",
+    plot_bgcolor = "white",
+    legend = list(
+      title = list(text = "Status"),
+      x = 1.01, y = 1, xanchor = "left", yanchor = "top",
+      bgcolor = "rgba(255,255,255,0.85)"
+    ),
+    margin = list(l = 45, r = 115, t = 55, b = 80),
+    xaxis = list(visible = FALSE, range = c(0, 1), fixedrange = TRUE),
+    yaxis = list(visible = FALSE, range = c(0, 1), fixedrange = TRUE),
+    annotations = ann
+  )
+
+  plotly::config(
+    p,
+    toImageButtonOptions = list(
+      filename = paste0("Status_pies_", format(Sys.Date(), "%d-%b-%y")),
+      format = "png",
+      scale = 3
+    )
+  )
+}
+
+
+
+
+#' Interactive catch-weighted status pies using precautionary reference points
+#'
+#' Each stock is classified independently for fishing mortality and biomass,
+#' using ratios calculated against the selected precautionary references:
+#'   F/Fref > 1  -> RED; otherwise GREEN
+#'   B/Bref < 1  -> RED; otherwise GREEN
+#'   Missing/invalid reference or ratio -> GREY
+#'
+#' Pie slices represent the proportion of catch (or fallback landings) in the
+#' ecoregion, NOT the proportion of stock counts. Rows are fisheries guilds,
+#' including Total; the two columns are F/Fref and B/Bref.
+#'
+#' @param x One row per stock from stockstatus_CLD_current_proxy(), after
+#'   add_proxyRefPoints_v2() has selected the precautionary reference points.
+#'   Requires StockKeyLabel, FisheriesGuild, FMSY, MSYBtrigger, F_FMSY,
+#'   and SSB_MSYBtrigger.
+#' @param y Optional catch source with StockKeyLabel, Catches_in_ecoregion and/or
+#'   Landings_in_ecoregion. If NULL, x is used for catches and landings.
+#' @param return_data If TRUE, return catch-weighted status summaries.
+#' @param width_px Approximate display width (used for responsive height).
+#' @param max_hover_stocks Maximum number of stocks listed per hover slice.
+#' @return A Plotly object or a summary data frame.
+plot_GES_pies_plotly_v2 <- function(
+    x,
+    y = NULL,
+    return_data = FALSE,
+    width_px = 800,
+    max_hover_stocks = 25
+) {
+
+  status_colors <- c(
+    GREEN = "#00B26D",
+    RED   = "#d93b1c",
+    GREY  = "#d3d3d3"
+  )
+
+  required_x <- c(
+    "StockKeyLabel", "FisheriesGuild", "FMSY", "MSYBtrigger",
+    "F_FMSY", "SSB_MSYBtrigger"
+  )
+  missing_x <- setdiff(required_x, names(x))
+  if (length(missing_x) > 0L) {
+    stop("Missing columns in x: ", paste(missing_x, collapse = ", "))
+  }
+
+  if (is.null(y)) y <- x
+  if (!"StockKeyLabel" %in% names(y)) {
+    stop("y must contain StockKeyLabel.")
+  }
+  if (!any(c("Catches_in_ecoregion", "Landings_in_ecoregion") %in% names(y))) {
+    stop("y (or x if y is NULL) must contain Catches_in_ecoregion ",
+         "and/or Landings_in_ecoregion.")
+  }
+  if (!"Catches_in_ecoregion" %in% names(y)) {
+    y$Catches_in_ecoregion <- NA_real_
+  }
+  if (!"Landings_in_ecoregion" %in% names(y)) {
+    y$Landings_in_ecoregion <- NA_real_
+  }
+
+  to_number <- function(z) suppressWarnings(as.numeric(as.character(z)))
+  clean_nonnegative <- function(z) {
+    z <- to_number(z)
+    z[!is.finite(z) | z < 0] <- NA_real_
+    z
+  }
+  format_tonnes <- function(z) {
+    format(round(z, 0), big.mark = ",", scientific = FALSE, trim = TRUE)
+  }
+  escape_html <- function(z) {
+    z <- gsub("&", "&amp;", z, fixed = TRUE)
+    z <- gsub("<", "&lt;", z, fixed = TRUE)
+    gsub(">", "&gt;", z, fixed = TRUE)
+  }
+
+  # ---------------------------------------------------------
+  # 1. Calculate INDEPENDENT precautionary F and B status.
+  #    Do not use the original SAG FishingPressure/StockSize status.
+  # ---------------------------------------------------------
+  stock_df <- x |>
+    dplyr::transmute(
+      StockKeyLabel = as.character(StockKeyLabel),
+      FisheriesGuild = as.character(FisheriesGuild),
+      FMSY = to_number(FMSY),
+      MSYBtrigger = to_number(MSYBtrigger),
+      F_FMSY = to_number(F_FMSY),
+      SSB_MSYBtrigger = to_number(SSB_MSYBtrigger)
+    ) |>
+    dplyr::filter(!is.na(StockKeyLabel), nzchar(StockKeyLabel)) |>
+    dplyr::mutate(
+      FisheriesGuild = dplyr::if_else(
+        is.na(FisheriesGuild) | !nzchar(FisheriesGuild),
+        "Unknown", FisheriesGuild
+      )
+    ) |>
+    dplyr::distinct()
+
+  if (nrow(stock_df) == 0L) stop("No stocks in x.")
+
+  # Exact duplicate rows are harmless, but differing records for the
+  # same stock should not be joined/counted twice.
+  repeated <- stock_df |>
+    dplyr::count(StockKeyLabel, name = "n") |>
+    dplyr::filter(n > 1L)
+  if (nrow(repeated) > 0L) {
+    stop("Conflicting rows for StockKeyLabel in x: ",
+         paste(utils::head(repeated$StockKeyLabel, 8L), collapse = ", "),
+         ". Supply one assessed row per stock.")
+  }
+
+  stock_df <- stock_df |>
+    dplyr::mutate(
+      F_Status = dplyr::case_when(
+        !is.finite(FMSY) | FMSY <= 0 ~ "GREY",
+        !is.finite(F_FMSY) | F_FMSY < 0 ~ "GREY",
+        F_FMSY > 1 ~ "RED",
+        TRUE ~ "GREEN"
+      ),
+      B_Status = dplyr::case_when(
+        !is.finite(MSYBtrigger) | MSYBtrigger <= 0 ~ "GREY",
+        !is.finite(SSB_MSYBtrigger) | SSB_MSYBtrigger < 0 ~ "GREY",
+        SSB_MSYBtrigger < 1 ~ "RED",
+        TRUE ~ "GREEN"
+      )
+    )
+
+  # ---------------------------------------------------------
+  # 2. Attach ecoregion catches, falling back to landings.
+  #    Missing catch weights are not converted into status GREY.
+  # ---------------------------------------------------------
+  catch_df <- y |>
+    dplyr::transmute(
+      StockKeyLabel = as.character(StockKeyLabel),
+      catch_value = clean_nonnegative(Catches_in_ecoregion),
+      landing_value = clean_nonnegative(Landings_in_ecoregion)
+    ) |>
+    dplyr::filter(!is.na(StockKeyLabel), nzchar(StockKeyLabel)) |>
+    dplyr::mutate(
+      CATCH = dplyr::coalesce(catch_value, landing_value),
+      CatchSource = dplyr::case_when(
+        !is.na(catch_value) ~ "Catches",
+        !is.na(landing_value) ~ "Landings",
+        TRUE ~ "Missing"
+      )
+    ) |>
+    dplyr::select(StockKeyLabel, CATCH, CatchSource) |>
+    dplyr::distinct()
+
+  repeated_catch <- catch_df |>
+    dplyr::count(StockKeyLabel, name = "n") |>
+    dplyr::filter(n > 1L)
+  if (nrow(repeated_catch) > 0L) {
+    stop("Conflicting catch/landing records in y for: ",
+         paste(utils::head(repeated_catch$StockKeyLabel, 8L),
+               collapse = ", "),
+         ". Resolve these before plotting to avoid double counting.")
+  }
+
+  stock_df <- stock_df |>
+    dplyr::left_join(catch_df, by = "StockKeyLabel")
+
+  # ---------------------------------------------------------
+  # 3. Long data: each stock contributes to BOTH indicators.
+  # ---------------------------------------------------------
+  long_df <- dplyr::bind_rows(
+    stock_df |>
+      dplyr::transmute(
+        StockKeyLabel, FisheriesGuild, CATCH, CatchSource,
+        Indicator = "Fref", Colour = F_Status
+      ),
+    stock_df |>
+      dplyr::transmute(
+        StockKeyLabel, FisheriesGuild, CATCH, CatchSource,
+        Indicator = "Bref", Colour = B_Status
+      )
+  )
+
+  # Total row is assembled from the same stocks, once per indicator.
+  long_df <- dplyr::bind_rows(
+    long_df,
+    dplyr::mutate(long_df, FisheriesGuild = "Total")
+  )
+
+  # Note exclusions for transparency. Stocks with zero or unknown catch
+  # cannot contribute to a catch-weighted pie, irrespective of status.
+  coverage <- long_df |>
+    dplyr::group_by(FisheriesGuild, Indicator) |>
+    dplyr::summarise(
+      n_stocks = dplyr::n(),
+      excluded_stocks = sum(!is.finite(CATCH) | CATCH <= 0),
+      .groups = "drop"
+    )
+
+  weighted <- long_df |>
+    dplyr::filter(is.finite(CATCH), CATCH > 0)
+
+  if (nrow(weighted) == 0L) {
+    stop("No stocks have positive Catches_in_ecoregion or ",
+         "Landings_in_ecoregion values.")
+  }
+
+  # Stock-level hover text within each status slice.
+  if (!is.numeric(max_hover_stocks) || length(max_hover_stocks) != 1L ||
+      !is.finite(max_hover_stocks) || max_hover_stocks < 1) {
+    stop("max_hover_stocks must be a positive number.")
+  }
+  max_hover_stocks <- as.integer(max_hover_stocks)
+  bar_width <- 20L
+
+  build_breakdown <- function(stock_ids, catches, sources) {
+    ix <- order(catches, decreasing = TRUE)
+    stock_ids <- stock_ids[ix]
+    catches <- catches[ix]
+    sources <- sources[ix]
+    total <- sum(catches)
+    show <- seq_len(min(length(stock_ids), max_hover_stocks))
+    lines <- vapply(show, function(i) {
+      pct <- 100 * catches[[i]] / total
+      paste0(
+        escape_html(stock_ids[[i]]), ": ",
+        strrep("\u2588", max(1L, round(bar_width * pct / 100))),
+        " ", sprintf("%.1f%%", pct),
+        " (", format_tonnes(catches[[i]]), " t; ",
+        sources[[i]], ")"
+      )
+    }, character(1))
+    additional <- length(stock_ids) - length(show)
+    if (additional > 0L) {
+      lines <- c(lines, paste0("... and ", additional, " more stocks"))
+    }
+    paste(lines, collapse = "<br>")
+  }
+
+  slices <- weighted |>
+    dplyr::group_by(FisheriesGuild, Indicator, Colour) |>
+    dplyr::summarise(
+      Catch = sum(CATCH),
+      COUNT = dplyr::n(),
+      breakdown_html = build_breakdown(StockKeyLabel, CATCH, CatchSource),
+      stock_ids = list(StockKeyLabel),
+      .groups = "drop"
+    ) |>
+    dplyr::group_by(FisheriesGuild, Indicator) |>
+    dplyr::mutate(
+      total_catch = sum(Catch),
+      pct = 100 * Catch / total_catch
+    ) |>
+    dplyr::ungroup() |>
+    dplyr::left_join(coverage, by = c("FisheriesGuild", "Indicator"))
+
+  headers <- c(
+    Fref = "Fishing pressure (F/Fref)",
+    Bref = "Stock size (B/Bref)"
+  )
+
+  slices$hover_text <- vapply(seq_len(nrow(slices)), function(i) {
+    paste0(
+      "<b>", escape_html(slices$FisheriesGuild[[i]]), " — ",
+      headers[[slices$Indicator[[i]]]], "</b><br>",
+      "Status: ", slices$Colour[[i]], "<br>",
+      "Catch / landings: ", format_tonnes(slices$Catch[[i]]), " t",
+      " (", sprintf("%.1f%%", slices$pct[[i]]), ")<br>",
+      "Stocks in slice: ", slices$COUNT[[i]], "<br>",
+      "Stocks excluded from this guild (no positive catch): ",
+      slices$excluded_stocks[[i]], "<br><br>",
+      "<b>Catch by stock</b><br>", slices$breakdown_html[[i]]
+    )
+  }, character(1))
+
+  if (isTRUE(return_data)) return(slices)
+
+  # ---------------------------------------------------------
+  # 4. Build a two-column Plotly pie grid with guilds as rows.
+  # ---------------------------------------------------------
+  if (!is.numeric(width_px) || length(width_px) != 1L ||
+      !is.finite(width_px) || width_px <= 0) {
+    width_px <- 800
+  }
+
+  requested_guilds <- c(
+    "Total", "benthic", "demersal", "pelagic",
+    "shellfish", "elasmobranch"
+  )
+  actual_guilds <- unique(as.character(slices$FisheriesGuild))
+  guilds <- c(
+    intersect(requested_guilds, actual_guilds),
+    sort(setdiff(actual_guilds, requested_guilds))
+  )
+  indicators <- c("Fref", "Bref")
+
+  n_rows <- length(guilds)
+  top <- 0.91
+  bottom <- 0.06
+  row_gap <- min(0.018, 0.12 / n_rows)
+  row_height <- (top - bottom - (n_rows - 1L) * row_gap) / n_rows
+
+  # Leave space for guild labels and the status legend.
+  left <- 0.15
+  right <- 0.96
+  col_gap <- 0.07
+  col_width <- (right - left - col_gap) / 2
+
+  p <- plotly::plot_ly()
+  annotations <- list()
+
+  # Explicit legend entries avoid missing or duplicated legend categories
+  # when different guild pies contain different status combinations.
+  for (status in names(status_colors)) {
+    p <- plotly::add_trace(
+      p,
+      x = -1, y = -1,
+      type = "scatter", mode = "markers",
+      name = status,
+      marker = list(color = status_colors[[status]], size = 11),
+      visible = "legendonly", showlegend = TRUE,
+      legendgroup = status, hoverinfo = "skip", inherit = FALSE
+    )
+  }
+
+  for (i in seq_along(guilds)) {
+    y1 <- top - (i - 1L) * (row_height + row_gap)
+    y0 <- y1 - row_height
+
+    annotations[[length(annotations) + 1L]] <- list(
+      x = left - 0.025,
+      y = mean(c(y0, y1)),
+      xref = "paper", yref = "paper",
+      xanchor = "right", yanchor = "middle",
+      text = paste0("<b>", escape_html(tools::toTitleCase(guilds[[i]])),
+                    "</b>"),
+      showarrow = FALSE, font = list(size = 12)
+    )
+
+    for (j in seq_along(indicators)) {
+      x0 <- left + (j - 1L) * (col_width + col_gap)
+      x1 <- x0 + col_width
+
+      sub <- slices[
+        slices$FisheriesGuild == guilds[[i]] &
+          slices$Indicator == indicators[[j]],
+        , drop = FALSE
+      ]
+
+      if (nrow(sub) == 0L) {
+        annotations[[length(annotations) + 1L]] <- list(
+          x = mean(c(x0, x1)), y = mean(c(y0, y1)),
+          xref = "paper", yref = "paper",
+          text = "No catch data", showarrow = FALSE,
+          font = list(size = 10, color = "#666666")
+        )
+        next
+      }
+
+      # Keep a consistent clockwise colour order.
+      sub <- sub[match(c("GREEN", "RED", "GREY"), sub$Colour), , drop = FALSE]
+      sub <- sub[!is.na(sub$Colour), , drop = FALSE]
+
+      p <- plotly::add_trace(
+        p,
+        type = "pie",
+        labels = as.character(sub$Colour),
+        values = as.numeric(sub$Catch),
+        customdata = as.character(sub$hover_text),
+        hovertemplate = "%{customdata}<extra></extra>",
+        textinfo = "label+percent",
+        textposition = "auto",
+        insidetextorientation = "horizontal",
+        sort = FALSE,
+        direction = "clockwise",
+        marker = list(
+          colors = unname(status_colors[as.character(sub$Colour)]),
+          line = list(color = "#FFFFFF", width = 1)
+        ),
+        domain = list(x = c(x0, x1), y = c(y0, y1)),
+        showlegend = FALSE,
+        inherit = FALSE
+      )
+    }
+  }
+
+  for (j in seq_along(indicators)) {
+    x0 <- left + (j - 1L) * (col_width + col_gap)
+    annotations[[length(annotations) + 1L]] <- list(
+      x = x0 + col_width / 2, y = 0.965,
+      xref = "paper", yref = "paper",
+      text = paste0("<b>", headers[[indicators[[j]]]], "</b>"),
+      showarrow = FALSE, font = list(size = 13)
+    )
+  }
+
+  annotations[[length(annotations) + 1L]] <- list(
+    x = 1, y = -0.04,
+    xref = "paper", yref = "paper",
+    xanchor = "right", yanchor = "top", showarrow = FALSE,
+    text = paste0(
+      "ICES Stock Assessment Database, ",
+      format(Sys.Date(), "%d-%b-%y"), ". ICES, Copenhagen"
+    ),
+    font = list(size = 10)
+  )
+
+  plot_height <- max(500, n_rows * max(145, min(185, width_px / 5)) + 90)
+
+  p <- plotly::layout(
+    p,
+    height = plot_height,
+    paper_bgcolor = "white", plot_bgcolor = "white",
+    legend = list(
+      title = list(text = "Status"),
+      x = 1.01, y = 1, xanchor = "left", yanchor = "top",
+      bgcolor = "rgba(255,255,255,0.90)"
+    ),
+    margin = list(l = 50, r = 120, t = 60, b = 70),
+    xaxis = list(visible = FALSE, range = c(0, 1), fixedrange = TRUE),
+    yaxis = list(visible = FALSE, range = c(0, 1), fixedrange = TRUE),
+    annotations = annotations
+  )
+
+  plotly::config(
+    p,
+    toImageButtonOptions = list(
+      filename = paste0("GES_pies_precautionary_", format(Sys.Date(), "%d-%b-%y")),
+      format = "png", scale = 3
     )
   )
 }
