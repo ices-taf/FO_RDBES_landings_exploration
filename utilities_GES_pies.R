@@ -2192,6 +2192,151 @@ prepare_precautionary_status_pies <- function(df) {
 }
 
 
+#' Interactive stock-status pies by fisheries guild
+#'
+#' Creates an interactive grid of pie charts showing the proportion
+#' of stocks classified as GREEN, RED, or GREY according to
+#' precautionary fishing mortality and biomass reference points.
+#'
+#' Stock status is calculated independently for fishing pressure
+#' (F/Fref) and stock size (B/Bref), rather than using the original
+#' status categories provided by the ICES Stock Assessment Database.
+#'
+#' The plot displays fisheries guilds in columns and the two
+#' stock-status indicators in rows.
+#'
+#' @param df A data frame containing stock-level assessment information,
+#'   typically produced by `stockstatus_CLD_current_proxy()` after
+#'   precautionary reference points have been selected using
+#'   `add_proxyRefPoints_v2()`.
+#'
+#'   The data are processed by `prepare_precautionary_status_pies()`,
+#'   which calculates stock counts and proportions by guild,
+#'   indicator, and status category.
+#'
+#' @param return_data Logical; if TRUE, returns the processed
+#'   stock-status summary data instead of the Plotly figure.
+#'   Default is FALSE.
+#'
+#' @param width_px Numeric; approximate width of the plot in pixels.
+#'   Used to determine the overall plot height. In Shiny, this can
+#'   be obtained from `session$clientData`.
+#'   Default is 800.
+#'
+#' @param max_hover_stocks Positive numeric value specifying the
+#'   maximum number of stock identifiers displayed in each pie
+#'   slice's hover information. Additional stocks are summarised
+#'   as "... and n more". Default is 25.
+#'
+#' @return
+#' If `return_data = FALSE`, a Plotly object containing interactive
+#' stock-status pie charts.
+#'
+#' If `return_data = TRUE`, a data frame returned by
+#' `prepare_precautionary_status_pies()`, containing variables such as:
+#' \describe{
+#'   \item{FisheriesGuild}{Fisheries guild or Total category.}
+#'   \item{Indicator}{Reference-point indicator: Fref or Bref.}
+#'   \item{Colour}{Stock-status category: GREEN, RED, or GREY.}
+#'   \item{COUNT}{Number of stocks in the status category.}
+#'   \item{total_stocks}{Total number of stocks in the guild and indicator.}
+#'   \item{pct}{Percentage of stocks in the status category.}
+#'   \item{stock_ids}{Identifiers of stocks contributing to the slice.}
+#' }
+#'
+#' @details
+#' The function uses precautionary reference-point classifications:
+#'
+#' \strong{Fishing pressure (F/Fref):}
+#' \itemize{
+#'   \item GREEN: F/Fref <= 1.
+#'   \item RED: F/Fref > 1.
+#'   \item GREY: The relevant reference point or ratio is unavailable
+#'     or invalid.
+#' }
+#'
+#' \strong{Stock size (B/Bref):}
+#' \itemize{
+#'   \item GREEN: B/Bref >= 1.
+#'   \item RED: B/Bref < 1.
+#'   \item GREY: The relevant reference point or ratio is unavailable
+#'     or invalid.
+#' }
+#'
+#' The underlying precautionary reference-point selection uses the
+#' lowest eligible fishing mortality reference point and the highest
+#' eligible biomass reference point.
+#'
+#' \strong{Plot organisation:}
+#' \itemize{
+#'   \item Columns represent fisheries guilds in the following order:
+#'     Benthic, Demersal, Elasmobranch, Pelagic, Shellfish, Total.
+#'     Additional guilds, if present, are appended alphabetically.
+#'   \item Rows represent Fishing pressure (F/Fref) and
+#'     Stock size (B/Bref).
+#'   \item The Unknown fisheries guild is excluded as a separate
+#'     plot column, but its stocks remain included in Total.
+#'   \item Each pie represents the distribution of stock counts,
+#'     not catches or landings.
+#'   \item The number inside each slice indicates the number of
+#'     stocks in that status category.
+#'   \item A label below each pie displays the total number of stocks
+#'     represented.
+#' }
+#'
+#' \strong{Interactivity:}
+#' Hovering over a pie slice displays:
+#' \itemize{
+#'   \item Fisheries guild and reference-point indicator.
+#'   \item Status category (GREEN, RED, or GREY).
+#'   \item Number and percentage of stocks in the category.
+#'   \item Stock identifiers contributing to that category, up to
+#'     `max_hover_stocks`.
+#' }
+#'
+#' \strong{Layout and export:}
+#' \itemize{
+#'   \item A fixed row spacing of 0.16 separates the two indicators.
+#'   \item Plot height is adjusted according to `width_px`, with
+#'     a minimum of 700 px and a maximum of 1100 px.
+#'   \item Colours are fixed across all pies:
+#'     GREEN (#00B26D), RED (#d93b1c), and GREY (#d3d3d3).
+#'   \item A shared status legend is displayed.
+#'   \item A caption identifies the ICES Stock Assessment Database
+#'     and the current date.
+#'   \item The Plotly toolbar supports PNG export at scale 3.
+#' }
+#'
+#' The function requires `prepare_precautionary_status_pies()`
+#' to be available in the R environment.
+#'
+#' @examples
+#' \dontrun{
+#' # Interactive stock-count pies for all fisheries guilds
+#' plot_status_prop_pies_plotly_v2(catch_current_v2)
+#'
+#' # Increase the plot width and maximum hover stock list
+#' plot_status_prop_pies_plotly_v2(
+#'   catch_current_v2,
+#'   width_px = 1400,
+#'   max_hover_stocks = 40
+#' )
+#'
+#' # Inspect the underlying stock-status summary
+#' status_summary <- plot_status_prop_pies_plotly_v2(
+#'   catch_current_v2,
+#'   return_data = TRUE
+#' )
+#' }
+#'
+#' @seealso
+#' `prepare_precautionary_status_pies()`,
+#' `stockstatus_CLD_current_proxy()`,
+#' `add_proxyRefPoints_v2()`
+#'
+#' @importFrom plotly plot_ly add_trace layout config
+#' @importFrom dplyr mutate filter
+#' @noRd
 plot_status_prop_pies_plotly_v2 <- function(
     df,
     return_data = FALSE,
@@ -2206,6 +2351,7 @@ plot_status_prop_pies_plotly_v2 <- function(
       !is.finite(width_px) || width_px <= 0) {
     width_px <- 800
   }
+
   if (!is.numeric(max_hover_stocks) || length(max_hover_stocks) != 1L ||
       !is.finite(max_hover_stocks) || max_hover_stocks < 1) {
     stop("max_hover_stocks must be a positive number.")
@@ -2217,16 +2363,44 @@ plot_status_prop_pies_plotly_v2 <- function(
     RED   = "#d93b1c",
     GREY  = "#d3d3d3"
   )
+
   indicators <- c("Fref", "Bref")
   headers <- c(
     Fref = "Fishing pressure (F/Fref)",
     Bref = "Stock size (B/Bref)"
   )
+
+  # ---------------------------------------------------------
+  # Helper labels for guilds
+  # ---------------------------------------------------------
+
+  guild_display_name <- function(g) {
+    g <- tolower(trimws(g))
+    if (g == "total") return("Total")
+    tools::toTitleCase(g)
+  }
+
+  # Standardise guild names for plotting
+  counts <- counts |>
+    dplyr::mutate(
+      GuildPlot = tolower(trimws(as.character(FisheriesGuild)))
+    )
+
+  # Remove Unknown from displayed guilds only
+  counts_plot <- counts |>
+    dplyr::filter(GuildPlot != "unknown")
+
+  # Fixed desired order
   desired_guilds <- c(
-    "Total", "benthic", "demersal", "pelagic",
-    "shellfish", "elasmobranch"
+    "benthic",
+    "demersal",
+    "elasmobranch",
+    "pelagic",
+    "shellfish",
+    "total"
   )
-  present_guilds <- unique(as.character(counts$FisheriesGuild))
+
+  present_guilds <- unique(as.character(counts_plot$GuildPlot))
   guilds <- c(
     intersect(desired_guilds, present_guilds),
     sort(setdiff(present_guilds, desired_guilds))
@@ -2242,39 +2416,50 @@ plot_status_prop_pies_plotly_v2 <- function(
     out
   }
 
-  counts$hover_text <- vapply(seq_len(nrow(counts)), function(i) {
+  counts_plot$hover_text <- vapply(seq_len(nrow(counts_plot)), function(i) {
     paste0(
-      "<b>", counts$FisheriesGuild[[i]], " — ",
-      headers[[counts$Indicator[[i]]]], "</b><br>",
-      "Status: ", counts$Colour[[i]], "<br>",
-      "Stocks: ", counts$COUNT[[i]], " / ", counts$total_stocks[[i]],
-      " (", sprintf("%.1f", counts$pct[[i]]), "%)<br><br>",
-      "<b>Stocks</b><br>", format_stocks(counts$stock_ids[[i]])
+      "<b>", guild_display_name(counts_plot$GuildPlot[[i]]), " — ",
+      headers[[counts_plot$Indicator[[i]]]], "</b><br>",
+      "Status: ", counts_plot$Colour[[i]], "<br>",
+      "Stocks: ", counts_plot$COUNT[[i]], " / ", counts_plot$total_stocks[[i]],
+      " (", sprintf("%.1f", counts_plot$pct[[i]]), "%)<br><br>",
+      "<b>Stocks</b><br>", format_stocks(counts_plot$stock_ids[[i]])
     )
   }, character(1))
 
-  n_rows <- length(guilds)
-  top <- 0.91
-  bottom <- 0.06
-  row_gap <- min(0.020, 0.12 / n_rows)
-  row_height <- (top - bottom - (n_rows - 1L) * row_gap) / n_rows
+  # ---------------------------------------------------------
+  # Layout:
+  #   columns = guilds
+  #   rows    = indicators
+  # ---------------------------------------------------------
 
-  # Reserve a strip on the left for guild labels.
-  left <- 0.15
-  right <- 0.98
-  col_gap <- 0.08
-  col_width <- (right - left - col_gap) / 2
+  n_rows <- length(indicators)
+  n_cols <- length(guilds)
+
+  top <- 0.88
+  bottom <- 0.10
+  left <- 0.12
+  right <- 0.95
+
+  # Height/spacing adjustments requested
+  row_gap <- 0.16
+  col_gap <- min(0.025, 0.12 / max(1, n_cols))
+
+  row_height <- (top - bottom - (n_rows - 1L) * row_gap) / n_rows
+  col_width  <- (right - left - (n_cols - 1L) * col_gap) / n_cols
 
   p <- plotly::plot_ly()
   ann <- list()
 
-  # Stable legend, including colours missing from the displayed subset.
-  # Marker coordinates are off the hidden Cartesian axes, so they are
-  # not drawn on the pie grid even if the legend is clicked.
+  # ---------------------------------------------------------
+  # Stable legend
+  # ---------------------------------------------------------
+
   for (status in names(status_colors)) {
     p <- plotly::add_trace(
       p,
-      type = "scatter", mode = "markers",
+      type = "scatter",
+      mode = "markers",
       x = -1, y = -1,
       name = status,
       marker = list(color = status_colors[[status]], size = 11),
@@ -2285,28 +2470,37 @@ plot_status_prop_pies_plotly_v2 <- function(
     )
   }
 
-  for (i in seq_along(guilds)) {
+  # ---------------------------------------------------------
+  # Add pies
+  # ---------------------------------------------------------
+
+  for (i in seq_along(indicators)) {
+
     y1 <- top - (i - 1L) * (row_height + row_gap)
     y0 <- y1 - row_height
 
-    ann[[length(ann) + 1L]] <- list(
-      x = 0.13, y = (y0 + y1) / 2,
-      xref = "paper", yref = "paper",
-      xanchor = "right", yanchor = "middle",
-      text = paste0("<b>", tools::toTitleCase(guilds[[i]]), "</b>"),
-      showarrow = FALSE, font = list(size = 12)
-    )
+    for (j in seq_along(guilds)) {
 
-    for (j in seq_along(indicators)) {
       x0 <- left + (j - 1L) * (col_width + col_gap)
       x1 <- x0 + col_width
 
-      sub <- counts[
-        counts$FisheriesGuild == guilds[[i]] &
-          counts$Indicator == indicators[[j]],
+      sub <- counts_plot[
+        counts_plot$GuildPlot == guilds[[j]] &
+          counts_plot$Indicator == indicators[[i]],
         , drop = FALSE
       ]
-      if (nrow(sub) == 0L) next
+
+      if (nrow(sub) == 0L) {
+        ann[[length(ann) + 1L]] <- list(
+          x = (x0 + x1) / 2,
+          y = (y0 + y1) / 2,
+          xref = "paper", yref = "paper",
+          text = "No data",
+          showarrow = FALSE,
+          font = list(size = 10, color = "#666666")
+        )
+        next
+      }
 
       sub <- sub[match(c("GREEN", "RED", "GREY"), sub$Colour), , drop = FALSE]
       sub <- sub[!is.na(sub$Colour), , drop = FALSE]
@@ -2332,22 +2526,71 @@ plot_status_prop_pies_plotly_v2 <- function(
         showlegend = FALSE,
         inherit = FALSE
       )
+
+      # total stocks under each pie
+      pie_total <- unique(sub$total_stocks)
+      pie_total <- pie_total[!is.na(pie_total)]
+
+      if (length(pie_total) == 0L) {
+        pie_total <- NA_integer_
+      } else {
+        pie_total <- pie_total[[1]]
+      }
+
+      ann[[length(ann) + 1L]] <- list(
+        x = (x0 + x1) / 2,
+        y = y0 - 0.025,
+        xref = "paper", yref = "paper",
+        text = paste0("total = ", pie_total, " stocks"),
+        showarrow = FALSE,
+        font = list(size = 10),
+        yanchor = "top"
+      )
     }
   }
 
-  for (j in seq_along(indicators)) {
+  # ---------------------------------------------------------
+  # Column headers = guilds
+  # ---------------------------------------------------------
+
+  for (j in seq_along(guilds)) {
     x0 <- left + (j - 1L) * (col_width + col_gap)
+    x1 <- x0 + col_width
+
     ann[[length(ann) + 1L]] <- list(
-      x = x0 + col_width / 2, y = 0.97,
+      x = (x0 + x1) / 2,
+      y = 0.955,
       xref = "paper", yref = "paper",
       xanchor = "center", yanchor = "middle",
-      text = paste0("<b>", headers[[indicators[[j]]]], "</b>"),
-      showarrow = FALSE, font = list(size = 13)
+      text = paste0("<b>", guild_display_name(guilds[[j]]), "</b>"),
+      showarrow = FALSE,
+      font = list(size = 12)
     )
   }
 
+  # ---------------------------------------------------------
+  # Row headers = indicators
+  # ---------------------------------------------------------
+
+  for (i in seq_along(indicators)) {
+    y1 <- top - (i - 1L) * (row_height + row_gap)
+    y0 <- y1 - row_height
+
+    ann[[length(ann) + 1L]] <- list(
+      x = 0.05,
+      y = (y0 + y1) / 2,
+      xref = "paper", yref = "paper",
+      xanchor = "right", yanchor = "middle",
+      text = paste0("<b>", headers[[indicators[[i]]]], "</b>"),
+      showarrow = FALSE,
+      font = list(size = 12),
+      textangle = -90
+    )
+  }
+
+  # footer
   ann[[length(ann) + 1L]] <- list(
-    x = 1, y = -0.035,
+    x = 1, y = -0.05,
     xref = "paper", yref = "paper",
     xanchor = "right", yanchor = "top",
     text = paste0(
@@ -2359,7 +2602,8 @@ plot_status_prop_pies_plotly_v2 <- function(
     font = list(size = 10)
   )
 
-  plot_height <- max(500, n_rows * max(145, min(180, width_px / 5)) + 100)
+  # Height adjustment requested
+  plot_height <- max(700, min(1100, round(width_px * 0.75)))
 
   p <- plotly::layout(
     p,
@@ -2368,10 +2612,11 @@ plot_status_prop_pies_plotly_v2 <- function(
     plot_bgcolor = "white",
     legend = list(
       title = list(text = "Status"),
-      x = 1.01, y = 1, xanchor = "left", yanchor = "top",
+      x = 1.01, y = 1,
+      xanchor = "left", yanchor = "top",
       bgcolor = "rgba(255,255,255,0.85)"
     ),
-    margin = list(l = 45, r = 115, t = 55, b = 80),
+    margin = list(l = 95, r = 115, t = 65, b = 85),
     xaxis = list(visible = FALSE, range = c(0, 1), fixedrange = TRUE),
     yaxis = list(visible = FALSE, range = c(0, 1), fixedrange = TRUE),
     annotations = ann
@@ -2389,7 +2634,6 @@ plot_status_prop_pies_plotly_v2 <- function(
 
 
 
-
 #' Interactive catch-weighted status pies using precautionary reference points
 #'
 #' Each stock is classified independently for fishing mortality and biomass,
@@ -2399,8 +2643,8 @@ plot_status_prop_pies_plotly_v2 <- function(
 #'   Missing/invalid reference or ratio -> GREY
 #'
 #' Pie slices represent the proportion of catch (or fallback landings) in the
-#' ecoregion, NOT the proportion of stock counts. Rows are fisheries guilds,
-#' including Total; the two columns are F/Fref and B/Bref.
+#' ecoregion, NOT the proportion of stock counts. Columns are fisheries guilds,
+#' including Total; the two rows are F/Fref and B/Bref.
 #'
 #' @param x One row per stock from stockstatus_CLD_current_proxy(), after
 #'   add_proxyRefPoints_v2() has selected the precautionary reference points.
@@ -2662,41 +2906,48 @@ plot_GES_pies_plotly_v2 <- function(
   if (isTRUE(return_data)) return(slices)
 
   # ---------------------------------------------------------
-  # 4. Build a two-column Plotly pie grid with guilds as rows.
+  # 4. Plotly layout: guilds as COLUMNS, F/B as TWO ROWS.
+  #    Matches the orientation of the original GES pies.
   # ---------------------------------------------------------
   if (!is.numeric(width_px) || length(width_px) != 1L ||
       !is.finite(width_px) || width_px <= 0) {
     width_px <- 800
   }
 
+  # Display guilds left to right, with Total at the end.
   requested_guilds <- c(
-    "Total", "benthic", "demersal", "pelagic",
-    "shellfish", "elasmobranch"
+    "benthic", "demersal", "elasmobranch",
+    "pelagic", "shellfish", "Total"
   )
   actual_guilds <- unique(as.character(slices$FisheriesGuild))
   guilds <- c(
     intersect(requested_guilds, actual_guilds),
     sort(setdiff(actual_guilds, requested_guilds))
   )
+  # Hide the Unknown guild column. Keep its stocks in the Total pies.
+  guilds <- guilds[tolower(trimws(guilds)) != "unknown"]
+
   indicators <- c("Fref", "Bref")
 
-  n_rows <- length(guilds)
-  top <- 0.91
-  bottom <- 0.06
-  row_gap <- min(0.018, 0.12 / n_rows)
-  row_height <- (top - bottom - (n_rows - 1L) * row_gap) / n_rows
+  n_cols <- length(guilds)
+  n_rows <- length(indicators)
 
-  # Leave space for guild labels and the status legend.
-  left <- 0.15
-  right <- 0.96
-  col_gap <- 0.07
-  col_width <- (right - left - col_gap) / 2
+  # Domains are expressed as fractions of the plotting area (0-1).
+  # A little extra space between rows accommodates catch-total labels.
+  left <- 0.065
+  right <- 0.975
+  col_gap <- if (n_cols <= 3L) 0.045 else 0.018
+  col_width <- (right - left - (n_cols - 1L) * col_gap) / n_cols
+
+  top <- 0.90
+  bottom <- 0.12
+  row_gap <- 0.16
+  row_height <- (top - bottom - (n_rows - 1L) * row_gap) / n_rows
 
   p <- plotly::plot_ly()
   annotations <- list()
 
-  # Explicit legend entries avoid missing or duplicated legend categories
-  # when different guild pies contain different status combinations.
+  # Explicit status legend (one entry for each possible colour).
   for (status in names(status_colors)) {
     p <- plotly::add_trace(
       p,
@@ -2709,27 +2960,30 @@ plot_GES_pies_plotly_v2 <- function(
     )
   }
 
-  for (i in seq_along(guilds)) {
+  # Two ROWS: fishing pressure (top), biomass (bottom).
+  for (i in seq_along(indicators)) {
     y1 <- top - (i - 1L) * (row_height + row_gap)
     y0 <- y1 - row_height
 
+    # Indicator label on the left side of the row.
     annotations[[length(annotations) + 1L]] <- list(
-      x = left - 0.025,
+      x = left - 0.030,
       y = mean(c(y0, y1)),
       xref = "paper", yref = "paper",
       xanchor = "right", yanchor = "middle",
-      text = paste0("<b>", escape_html(tools::toTitleCase(guilds[[i]])),
-                    "</b>"),
+      text = paste0("<b>", headers[[indicators[[i]]]], "</b>"),
+      textangle = -90,
       showarrow = FALSE, font = list(size = 12)
     )
 
-    for (j in seq_along(indicators)) {
+    # Guilds run across the COLUMNS.
+    for (j in seq_along(guilds)) {
       x0 <- left + (j - 1L) * (col_width + col_gap)
       x1 <- x0 + col_width
 
       sub <- slices[
-        slices$FisheriesGuild == guilds[[i]] &
-          slices$Indicator == indicators[[j]],
+        slices$FisheriesGuild == guilds[[j]] &
+          slices$Indicator == indicators[[i]],
         , drop = FALSE
       ]
 
@@ -2743,7 +2997,7 @@ plot_GES_pies_plotly_v2 <- function(
         next
       }
 
-      # Keep a consistent clockwise colour order.
+      # Keep a consistent clockwise status order in all pies.
       sub <- sub[match(c("GREEN", "RED", "GREY"), sub$Colour), , drop = FALSE]
       sub <- sub[!is.na(sub$Colour), , drop = FALSE]
 
@@ -2767,16 +3021,32 @@ plot_GES_pies_plotly_v2 <- function(
         showlegend = FALSE,
         inherit = FALSE
       )
+
+      # A total underneath each pie, as in the original guild-by-column plot.
+      guild_catch <- unique(sub$total_catch)
+      annotations[[length(annotations) + 1L]] <- list(
+        x = mean(c(x0, x1)), y = y0 - 0.012,
+        xref = "paper", yref = "paper",
+        xanchor = "center", yanchor = "top",
+        text = paste0(
+          "total = ", format(round(guild_catch[[1]] / 1000, 0),
+                              big.mark = ",", scientific = FALSE), "k t"
+        ),
+        showarrow = FALSE, font = list(size = 10)
+      )
     }
   }
 
-  for (j in seq_along(indicators)) {
+  # Guild names as COLUMN headers.
+  for (j in seq_along(guilds)) {
     x0 <- left + (j - 1L) * (col_width + col_gap)
     annotations[[length(annotations) + 1L]] <- list(
       x = x0 + col_width / 2, y = 0.965,
       xref = "paper", yref = "paper",
-      text = paste0("<b>", headers[[indicators[[j]]]], "</b>"),
-      showarrow = FALSE, font = list(size = 13)
+      text = paste0(
+        "<b>", escape_html(tools::toTitleCase(tolower(guilds[[j]]))), "</b>"
+      ),
+      showarrow = FALSE, font = list(size = 12)
     )
   }
 
@@ -2791,7 +3061,8 @@ plot_GES_pies_plotly_v2 <- function(
     font = list(size = 10)
   )
 
-  plot_height <- max(500, n_rows * max(145, min(185, width_px / 5)) + 90)
+  # Only two rows now, so the chart can be much shorter than before.
+  plot_height <- max(700, min(820, round(width_px * 0.50)))
 
   p <- plotly::layout(
     p,
@@ -2802,7 +3073,7 @@ plot_GES_pies_plotly_v2 <- function(
       x = 1.01, y = 1, xanchor = "left", yanchor = "top",
       bgcolor = "rgba(255,255,255,0.90)"
     ),
-    margin = list(l = 50, r = 120, t = 60, b = 70),
+    margin = list(l = 100, r = 120, t = 65, b = 75),
     xaxis = list(visible = FALSE, range = c(0, 1), fixedrange = TRUE),
     yaxis = list(visible = FALSE, range = c(0, 1), fixedrange = TRUE),
     annotations = annotations
