@@ -57,3 +57,47 @@ plot_discard_trends_app_plotly(
 ) %>%
   filter(FisheriesGuild == "pelagic") %>%
   select(Year, guildLandings, guildDiscards, guildRate)
+
+
+
+
+
+library(dplyr)
+
+share_lookup <- catch_current_adj %>%
+  filter(
+    !is.na(ShareLandingsInEcoregion),
+    between(ShareLandingsInEcoregion, 0, 1)
+  ) %>%
+  select(
+    StockKeyLabel,
+    share = ShareLandingsInEcoregion,
+    LastRDBESYear
+  )
+
+discard_estimated <- discard_base_data %>%
+  left_join(
+    share_lookup,
+    by = "StockKeyLabel",
+    relationship = "many-to-one"
+  ) %>%
+  mutate(
+    Catches_ecoregion = Catches * share,
+    Landings_ecoregion = Landings * share,
+    Discards_ecoregion = Discards * share
+  )
+
+
+head(share_lookup) %>% print(width = Inf)
+print(n = 55,share_lookup, width = Inf)
+head(discard_estimated) %>% print(width = Inf)
+
+
+
+p1 <- plot_discard_trends_app_plotly_v3(x = discard_estimated, year = 2026, ecoregion = "BI", complete_pairs = TRUE)
+filename <- "Discards trends adjusted with RDBES"
+htmlwidgets::saveWidget(
+        widget = p1,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(filename,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )

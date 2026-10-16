@@ -2065,6 +2065,1051 @@ plot_kobe_app_plotly_v2 <- function(
 }
 
 
+#' Interactive Kobe plot with optional panel for stocks of unknown status
+#'
+#' Extends plot_kobe_app_plotly_v2() by showing stocks lacking one or both
+#' usable reference-point ratios in a separate narrow panel on the right.
+#' The panel appears automatically only if such stocks exist in the selected
+#' fisheries guild(s). Stocks are plotted with catch-scaled grey circles and
+#' labelled by stock code; hover text explains why status is unknown.
+#'
+#' @param x Stock-level data with StockKeyLabel, FisheriesGuild, F_FMSY,
+#'   SSB_MSYBtrigger, Catches_in_ecoregion, and Landings_in_ecoregion.
+#' @param guild Fisheries guild(s), or "All".
+#' @param return_data If TRUE, return prepared data with KobeStatus, KobePanel,
+#'   UnknownReason, CatchSizeValue, CatchSizeSource, and point_size.
+#' @param size_by_catches If TRUE, use the same square-root catch-size scaling
+#'   for the Kobe plot and the unknown-status panel.
+#' @param min_point_size,max_point_size Range of marker diameters (pixels).
+#' @param n_size_legend Number of representative sizes shown in the catch-size legend.
+#' @param max_unknown_stocks Maximum number of stocks shown in the Unknown
+#'   panel, ranked by ecoregion catches (or fallback landings). Default 12.
+#'   Use Inf to show all. All stocks remain in return_data and size scaling.
+#' @param unknown_row_px Approximate minimum vertical space per displayed
+#'   unknown stock (pixels); used to increase plot height when necessary.
+#' @return Plotly widget, or prepared data if return_data is TRUE.
+#' @noRd
+plot_kobe_app_plotly_v3 <- function(
+    x,
+    guild,
+    return_data = FALSE,
+    size_by_catches = FALSE,
+    min_point_size = 8,
+    max_point_size = 25,
+    n_size_legend = 4,
+    unknown_row_px = 26,
+    max_unknown_stocks = 12
+) {
+
+  # 1. Validate input and filter stocks.
+  if (!is.numeric(min_point_size) || length(min_point_size) != 1L ||
+      !is.finite(min_point_size) || min_point_size <= 0 ||
+      !is.numeric(max_point_size) || length(max_point_size) != 1L ||
+      !is.finite(max_point_size) || max_point_size <= min_point_size) {
+    stop("Require 0 < min_point_size < max_point_size.")
+  }
+  if (!is.numeric(unknown_row_px) || length(unknown_row_px) != 1L ||
+      !is.finite(unknown_row_px) || unknown_row_px <= 0) {
+    stop("unknown_row_px must be a positive number.")
+  }
+
+  if (!is.numeric(max_unknown_stocks) || length(max_unknown_stocks) != 1L ||
+      is.na(max_unknown_stocks) || max_unknown_stocks < 1 ||
+      (!is.infinite(max_unknown_stocks) &&
+       max_unknown_stocks != floor(max_unknown_stocks))) {
+    stop("max_unknown_stocks must be a positive integer or Inf.")
+  }
+
+  required_cols <- c(
+    "StockKeyLabel", "FisheriesGuild", "F_FMSY", "SSB_MSYBtrigger",
+    "Catches_in_ecoregion", "Landings_in_ecoregion"
+  )
+  missing_cols <- setdiff(required_cols, names(x))
+  if (length(missing_cols) > 0L) {
+    stop("Missing input columns: ", paste(missing_cols, collapse = ", "))
+  }
+
+  df <- if (identical(guild, "All")) {
+    x
+  } else {
+    dplyr::filter(x, FisheriesGuild %in% guild)
+  }
+  if (nrow(df) == 0L) stop("No stocks for the selected fisheries guild(s).")
+
+  to_number <- function(z) suppressWarnings(as.numeric(as.character(z)))
+  for (nm in c("F_FMSY", "SSB_MSYBtrigger",
+               "Catches_in_ecoregion", "Landings_in_ecoregion")) {
+    df[[nm]] <- to_number(df[[nm]])
+  }
+
+  # 2. Standard/proxy point flags.
+  if (!"F_proxy" %in% names(df)) df$F_proxy <- FALSE
+  if (!"B_proxy" %in% names(df)) df$B_proxy <- FALSE
+  df <- dplyr::mutate(
+    df,
+    ProxyFlag = dplyr::if_else(
+      (F_proxy %in% TRUE) | (B_proxy %in% TRUE),
+      "Proxy reference point", "Reference point"
+    )
+  )
+
+  # 3. Classify using coordinates, not SAG's old Status column.
+  # Negative ratios are invalid too: they belong in the unknown panel.
+  valid_f <- is.finite(df$F_FMSY) & df$F_FMSY >= 0
+  valid_b <- is.finite(df$SSB_MSYBtrigger) & df$SSB_MSYBtrigger >= 0
+  known <- valid_f & valid_b
+
+  df$KobeStatus <- dplyr::case_when(
+    !known ~ "Unknown",
+    df$F_FMSY <= 1 & df$SSB_MSYBtrigger >= 1 ~ "Green",
+    df$F_FMSY > 1 & df$SSB_MSYBtrigger < 1 ~ "Red",
+    TRUE ~ "Orange"
+  )
+  df$KobePanel <- ifelse(known, "Kobe", "Unknown")
+  df$UnknownReason <- dplyr::case_when(
+    !valid_f & !valid_b ~ "F/Fref and B/Bref unavailable or invalid",
+    !valid_f ~ "F/Fref unavailable or invalid",
+    !valid_b ~ "B/Bref unavailable or invalid",
+    TRUE ~ ""
+  )
+  df$KobeDescription <- dplyr::case_when(
+    df$KobeStatus == "Green" ~
+      "Biomass above threshold; fishing pressure sustainable",
+    df$KobeStatus == "Red" ~
+      "Biomass below threshold; overfishing occurring",
+    df$KobeStatus == "Orange" & df$F_FMSY > 1 ~
+      "Biomass above threshold; overfishing occurring",
+    df$KobeStatus == "Orange" & df$SSB_MSYBtrigger < 1 ~
+      "Biomass below threshold; fishing pressure below threshold",
+    TRUE ~ "Status unknown"
+  )
+
+  status_pal <- c(
+    Green = "#4daf4a", Orange = "#ff8c00",
+    Red = "#e41a1c", Unknown = "#d3d3d3"
+  )
+  df$status_hex <- unname(status_pal[df$KobeStatus])
+
+  # 4. Catch/landings fallback (0 remains a valid reported quantity).
+  catch_value <- df$Catches_in_ecoregion
+  landing_value <- df$Landings_in_ecoregion
+  catch_value[!is.finite(catch_value) | catch_value < 0] <- NA_real_
+  landing_value[!is.finite(landing_value) | landing_value < 0] <- NA_real_
+  df$CatchSizeValue <- dplyr::coalesce(catch_value, landing_value)
+  df$CatchSizeSource <- dplyr::case_when(
+    !is.na(catch_value) ~ "Catches in ecoregion",
+    !is.na(landing_value) ~ "Landings in ecoregion",
+    TRUE ~ "No catch/landing data"
+  )
+
+  # 5. ONE size scale for both panels (including unknown-status stocks).
+  size_values <- df$CatchSizeValue[is.finite(df$CatchSizeValue)]
+  c_min <- if (length(size_values)) min(size_values) else NA_real_
+  c_max <- if (length(size_values)) max(size_values) else NA_real_
+
+  scale_catches <- function(values) {
+    out <- rep(min_point_size, length(values))
+    good <- is.finite(values) & values >= 0
+    if (!any(good) || !is.finite(c_min)) return(out)
+    if (c_min == c_max) {
+      out[good] <- (min_point_size + max_point_size) / 2
+    } else {
+      out[good] <- min_point_size +
+        (sqrt(values[good]) - sqrt(c_min)) /
+        (sqrt(c_max) - sqrt(c_min)) *
+        (max_point_size - min_point_size)
+    }
+    pmax(min_point_size, pmin(max_point_size, out))
+  }
+
+  df$point_size <- if (isTRUE(size_by_catches)) {
+    scale_catches(df$CatchSizeValue)
+  } else {
+    rep(12, nrow(df))
+  }
+  if (isTRUE(return_data)) return(df)
+
+  # 6. Derive linear main-axis limits from stocks with both ratios.
+  plot_df <- df[known, , drop = FALSE]
+  unknown_df <- df[!known, , drop = FALSE]
+  n_unknown_total <- nrow(unknown_df)
+  has_unknown <- n_unknown_total > 0L
+  # All unknown stocks remain in df; only the right-panel display is capped.
+  n_unknown_shown <- as.integer(min(n_unknown_total, max_unknown_stocks))
+
+  if (nrow(plot_df) > 0L) {
+    xmin <- min(c(plot_df$F_FMSY, 1))
+    xmax <- max(c(plot_df$F_FMSY, 1))
+    ymin <- min(c(plot_df$SSB_MSYBtrigger, 1))
+    ymax <- max(c(plot_df$SSB_MSYBtrigger, 1))
+    xpad <- max(0.1, (xmax - xmin) * 0.10)
+    ypad <- max(0.1, (ymax - ymin) * 0.10)
+    x_range <- c(max(0, xmin - xpad), xmax + xpad)
+    y_range <- c(max(0, ymin - ypad), ymax + ypad)
+  } else {
+    x_range <- c(0, 2)
+    y_range <- c(0, 2)
+  }
+
+  # 7. Hover text, with original values retained.
+  html_safe <- function(z) {
+    z <- ifelse(is.na(z), "NA", as.character(z))
+    z <- gsub("&", "&amp;", z, fixed = TRUE)
+    z <- gsub("<", "&lt;", z, fixed = TRUE)
+    gsub(">", "&gt;", z, fixed = TRUE)
+  }
+  format_quantity <- function(v) {
+    ifelse(
+      is.finite(v),
+      format(round(v, 0), big.mark = ",", scientific = FALSE, trim = TRUE),
+      "NA"
+    )
+  }
+  format_ratio <- function(v) {
+    ifelse(is.finite(v) & v >= 0, sprintf("%.2f", v), "NA")
+  }
+
+  df$hover_text <- paste0(
+    "<b>", html_safe(df$StockKeyLabel), "</b><br>",
+    "F/Fref: ", format_ratio(df$F_FMSY), "<br>",
+    "B/Bref: ", format_ratio(df$SSB_MSYBtrigger), "<br>",
+    "Kobe status: ", df$KobeStatus, "<br>",
+    ifelse(df$KobeStatus == "Unknown", df$UnknownReason, df$KobeDescription),
+    "<br>", df$CatchSizeSource, ": ", format_quantity(df$CatchSizeValue),
+    " t"
+  )
+  plot_df <- df[known, , drop = FALSE]
+  unknown_df <- df[!known, , drop = FALSE]
+
+  p <- plotly::plot_ly()
+  stock_annotations <- list()
+
+  # 8. Main Kobe markers (same symbols, colours, and labels as v2).
+  add_kobe_points <- function(plot, data, symbol, line_width, opacity) {
+    if (nrow(data) == 0L) return(plot)
+
+    for (status_name in unique(data$KobeStatus)) {
+      sub <- data[data$KobeStatus == status_name, , drop = FALSE]
+      col <- status_pal[[status_name]]
+      marker_line <- if (identical(symbol, "circle-open")) {
+        list(color = col, width = line_width)
+      } else {
+        list(color = "#333333", width = 0.1)
+      }
+
+      plot <- plotly::add_markers(
+        plot,
+        data = sub,
+        x = ~F_FMSY, y = ~SSB_MSYBtrigger,
+        marker = list(
+          symbol = symbol, size = sub$point_size,
+          color = col, line = marker_line
+        ),
+        customdata = ~hover_text,
+        hovertemplate = "%{customdata}<extra></extra>",
+        showlegend = FALSE, opacity = opacity, inherit = FALSE
+      )
+
+      for (k in seq_len(nrow(sub))) {
+        # In the split view, place labels for right-edge stocks to their
+        # left, reducing spillover into the unknown-status panel.
+        at_right_edge <- has_unknown &&
+          sub$F_FMSY[[k]] > (x_range[[2]] - 0.20 * diff(x_range))
+        label_shift <- sub$point_size[[k]] / 2 + 8
+
+        stock_annotations[[length(stock_annotations) + 1L]] <<- list(
+          x = sub$F_FMSY[[k]], y = sub$SSB_MSYBtrigger[[k]],
+          xref = "x", yref = "y",
+          text = html_safe(sub$StockKeyLabel[[k]]),
+          xanchor = if (at_right_edge) "right" else "left",
+          yanchor = "middle",
+          xshift = if (at_right_edge) -label_shift else label_shift,
+          showarrow = FALSE,
+          font = list(size = 10, color = "#333333")
+        )
+      }
+    }
+    plot
+  }
+
+  p <- add_kobe_points(
+    p, plot_df[plot_df$ProxyFlag == "Reference point", , drop = FALSE],
+    "circle", 0.1, 0.75
+  )
+  p <- add_kobe_points(
+    p, plot_df[plot_df$ProxyFlag == "Proxy reference point", , drop = FALSE],
+    "circle-open", 2, 1
+  )
+
+  # 9. Unknown panel: show up to max_unknown_stocks, ordered by catches.
+  # Keep all unknown stocks for return_data and shared size scaling.
+  # Separate x3/y3 axes are independent of the F/B axes.
+  if (has_unknown) {
+    unknown_df <- dplyr::arrange(
+      unknown_df, dplyr::desc(CatchSizeValue), StockKeyLabel
+    )
+    unknown_df <- unknown_df[seq_len(n_unknown_shown), , drop = FALSE]
+    unknown_df$PanelX <- rep(0.13, nrow(unknown_df))
+    unknown_df$PanelY <- rev(seq_len(nrow(unknown_df)))
+    unknown_df$PanelLabel <- substr(as.character(unknown_df$StockKeyLabel), 1, 24)
+
+    for (proxy_type in c("Reference point", "Proxy reference point")) {
+      sub <- unknown_df[
+        unknown_df$ProxyFlag == proxy_type, , drop = FALSE
+      ]
+      if (nrow(sub) == 0L) next
+      is_proxy <- identical(proxy_type, "Proxy reference point")
+
+      p <- plotly::add_trace(
+        p,
+        data = sub,
+        type = "scatter", mode = "markers+text",
+        x = ~PanelX, y = ~PanelY,
+        xaxis = "x3", yaxis = "y3",
+        text = ~PanelLabel, textposition = "middle right",
+        textfont = list(size = 10, color = "#333333"),
+        marker = list(
+          symbol = if (is_proxy) "circle-open" else "circle",
+          size = sub$point_size,
+          color = if (is_proxy) "#858585" else status_pal[["Unknown"]],
+          line = list(
+            color = if (is_proxy) "#858585" else "#333333",
+            width = if (is_proxy) 2 else 0.1
+          )
+        ),
+        customdata = ~hover_text,
+        hovertemplate = "%{customdata}<extra></extra>",
+        showlegend = FALSE, inherit = FALSE,
+        cliponaxis = FALSE
+      )
+    }
+  }
+
+  # 10. Legend for standard / proxy markers (unchanged).
+  legend_defs <- list(
+    "Reference point" = list(symbol = "circle", width = 0.1),
+    "Proxy reference point" = list(symbol = "circle-open", width = 1.8)
+  )
+  for (nm in names(legend_defs)) {
+    def <- legend_defs[[nm]]
+    p <- plotly::add_markers(
+      p, x = -1, y = -1,
+      xaxis = "x2", yaxis = "y2", name = nm,
+      marker = list(
+        symbol = def$symbol, size = 12, color = "#000000",
+        line = list(color = "#000000", width = def$width)
+      ),
+      legendgroup = "reference_type", showlegend = TRUE,
+      hoverinfo = "skip", inherit = FALSE
+    )
+  }
+
+  # 11. ONE size legend covering stocks in BOTH panels.
+  if (isTRUE(size_by_catches) && length(size_values) > 0L) {
+    # Number of representative sizes displayed in the legend
+    if (!is.numeric(n_size_legend) ||
+        length(n_size_legend) != 1L ||
+        !is.finite(n_size_legend) ||
+        n_size_legend < 1 ||
+        n_size_legend != as.integer(n_size_legend)) {
+      stop("n_size_legend must be a positive integer.")
+    }
+
+    legend_probs <- if (n_size_legend == 1) {
+      0.5
+    } else {
+      seq(0, 1, length.out = n_size_legend)
+    }
+
+    legend_values <- unique(as.numeric(stats::quantile(
+      size_values,
+      probs = legend_probs,
+      na.rm = TRUE,
+      names = FALSE
+    )))
+    legend_sizes <- scale_catches(legend_values)
+
+    for (i in seq_along(legend_values)) {
+      legend_label <- paste0(format_quantity(legend_values[[i]]), " tonnes")
+      p <- plotly::add_trace(
+        p,
+        type = "scatter", mode = "markers", x = 0, y = 0,
+        name = legend_label,
+        marker = list(
+          symbol = "circle", size = legend_sizes[[i]],
+          color = "rgba(140,140,140,0.45)",
+          line = list(color = "#666666", width = 1)
+        ),
+        legendgroup = "catch_size",
+        legendgrouptitle = list(text = "Catches / landings in ecoregion"),
+        visible = "legendonly", showlegend = TRUE,
+        hoverinfo = "skip", inherit = FALSE
+      )
+    }
+  }
+
+  # 12. Layout: reserve a side domain only if unknown stocks exist.
+  # No unknown stocks -> the regular Kobe plot occupies the full width.
+  main_domain <- if (has_unknown) c(0, 0.72) else c(0, 1)
+  legend_outside <- isTRUE(size_by_catches) || has_unknown
+  layout_shapes <- list(
+    list(
+      type = "line", x0 = 1, x1 = 1,
+      y0 = y_range[[1]], y1 = y_range[[2]],
+      line = list(color = "#4D4D4D", dash = "dash")
+    ),
+    list(
+      type = "line", x0 = x_range[[1]], x1 = x_range[[2]],
+      y0 = 1, y1 = 1,
+      line = list(color = "#4D4D4D", dash = "dash")
+    )
+  )
+  layout_annotations <- stock_annotations
+
+  if (has_unknown) {
+    layout_shapes <- c(
+      list(
+        list(
+          type = "rect", xref = "paper", yref = "paper",
+          x0 = 0.78, x1 = 1, y0 = 0, y1 = 1,
+          fillcolor = "rgba(245,245,245,0.55)",
+          line = list(width = 0), layer = "below"
+        ),
+        list(
+          type = "line", xref = "paper", yref = "paper",
+          x0 = 0.765, x1 = 0.765, y0 = 0, y1 = 1,
+          line = list(color = "#CCCCCC", width = 1)
+        )
+      ),
+      layout_shapes
+    )
+    layout_annotations[[length(layout_annotations) + 1L]] <- list(
+      x = 0.89, y = 1.035, xref = "paper", yref = "paper",
+      text = paste0("<b>Unknown status (", n_unknown_total, ")</b>"),
+      xanchor = "center", yanchor = "bottom", showarrow = FALSE,
+      font = list(size = 12, color = "#333333")
+    )
+    if (n_unknown_shown < n_unknown_total) {
+      layout_annotations[[length(layout_annotations) + 1L]] <- list(
+        x = 0.89, y = 1.005, xref = "paper", yref = "paper",
+        text = paste0("Showing ", n_unknown_shown, " of ", n_unknown_total),
+        xanchor = "center", yanchor = "bottom", showarrow = FALSE,
+        font = list(size = 10, color = "#666666")
+      )
+    }
+  }
+
+  layout_annotations[[length(layout_annotations) + 1L]] <- list(
+    x = 1, y = -0.14, xref = "paper", yref = "paper",
+    xanchor = "right", yanchor = "top", showarrow = FALSE,
+    text = paste0(
+      "ICES Stock Assessment Database, ",
+      format(Sys.Date(), "%d-%b-%y"), ". ICES, Copenhagen"
+    ),
+    font = list(size = 10)
+  )
+
+  p <- plotly::layout(
+    p,
+    height = NULL,
+    autosize = TRUE,
+    paper_bgcolor = "white", plot_bgcolor = "white",
+    xaxis = list(
+      title = "F/Fref", domain = main_domain,
+      range = x_range, zeroline = FALSE
+    ),
+    yaxis = list(
+      title = "B/Bref", domain = c(0, 1),
+      range = y_range, zeroline = FALSE
+    ),
+    xaxis2 = list(
+      overlaying = "x", visible = FALSE, range = c(0, 1),
+      fixedrange = TRUE, autorange = FALSE
+    ),
+    yaxis2 = list(
+      overlaying = "y", visible = FALSE, range = c(0, 1),
+      fixedrange = TRUE, autorange = FALSE
+    ),
+    xaxis3 = if (has_unknown) list(
+      domain = c(0.79, 1), anchor = "y3", range = c(0, 1),
+      visible = FALSE, fixedrange = TRUE
+    ) else NULL,
+    yaxis3 = if (has_unknown) list(
+      domain = c(0, 1), anchor = "x3",
+      range = c(0.5, n_unknown_shown + 0.5),
+      visible = FALSE, fixedrange = TRUE
+    ) else NULL,
+    shapes = layout_shapes,
+    legend = list(
+      title = list(text = "ICES reference point"),
+      x = if (legend_outside) 1.02 else 0.98,
+      y = 0.98,
+      xanchor = if (legend_outside) "left" else "right",
+      yanchor = "top",
+      bgcolor = "rgba(255,255,255,0.90)",
+      bordercolor = "#D9D9D9", borderwidth = 1,
+      tracegroupgap = 18
+    ),
+    hovermode = "closest",
+    margin = list(
+      l = 90, r = if (legend_outside) 280 else 30,
+      t = if (has_unknown) 55 else 30, b = 70
+    ),
+    annotations = layout_annotations
+  )
+
+  plotly::config(
+    p,
+    responsive = TRUE,
+    toImageButtonOptions = list(
+      filename = paste0("Kobe_v3_", format(Sys.Date(), "%d-%b-%y")),
+      format = "png", scale = 3
+    )
+  )
+}
+# #' Interactive Kobe plot with optional panel for stocks of unknown status
+# #'
+# #' Extends plot_kobe_app_plotly_v2() by showing stocks lacking one or both
+# #' usable reference-point ratios in a separate narrow panel on the right.
+# #' The panel appears automatically only if such stocks exist in the selected
+# #' fisheries guild(s). Stocks are plotted with catch-scaled grey circles and
+# #' labelled by stock code; hover text explains why status is unknown.
+# #'
+# #' @param x Stock-level data with StockKeyLabel, FisheriesGuild, F_FMSY,
+# #'   SSB_MSYBtrigger, Catches_in_ecoregion, and Landings_in_ecoregion.
+# #' @param guild Fisheries guild(s), or "All".
+# #' @param return_data If TRUE, return prepared data with KobeStatus, KobePanel,
+# #'   UnknownReason, CatchSizeValue, CatchSizeSource, and point_size.
+# #' @param size_by_catches If TRUE, use the same square-root catch-size scaling
+# #'   for the Kobe plot and the unknown-status panel.
+# #' @param min_point_size,max_point_size Range of marker diameters (pixels).
+# #' @param n_size_legend Desired number of representative catch-size circles in the
+# #'   separate, actual-pixel-size sidebar key. Equal quantiles, including extremes.
+# #' @param unknown_row_px Approximate minimum vertical space per unknown stock
+# #'   (pixels); used to increase plot height when necessary.
+# #' @return Plotly widget, or prepared data if return_data is TRUE.
+# #' @noRd
+# plot_kobe_app_plotly_v3 <- function(
+#     x,
+#     guild,
+#     return_data = FALSE,
+#     size_by_catches = FALSE,
+#     min_point_size = 10,
+#     max_point_size = 26,
+#     unknown_row_px = 26,
+#     n_size_legend = 5
+# ) {
+
+#   # 1. Validate input and filter stocks.
+#   if (!is.numeric(min_point_size) || length(min_point_size) != 1L ||
+#       !is.finite(min_point_size) || min_point_size <= 0 ||
+#       !is.numeric(max_point_size) || length(max_point_size) != 1L ||
+#       !is.finite(max_point_size) || max_point_size <= min_point_size) {
+#     stop("Require 0 < min_point_size < max_point_size.")
+#   }
+#   if (!is.numeric(unknown_row_px) || length(unknown_row_px) != 1L ||
+#       !is.finite(unknown_row_px) || unknown_row_px <= 0) {
+#     stop("unknown_row_px must be a positive number.")
+#   }
+
+#   if (!is.numeric(n_size_legend) || length(n_size_legend) != 1L ||
+#       !is.finite(n_size_legend) || n_size_legend < 1 ||
+#       n_size_legend != as.integer(n_size_legend)) {
+#     stop("n_size_legend must be a positive integer.")
+#   }
+#   n_size_legend <- as.integer(n_size_legend)
+
+#   required_cols <- c(
+#     "StockKeyLabel", "FisheriesGuild", "F_FMSY", "SSB_MSYBtrigger",
+#     "Catches_in_ecoregion", "Landings_in_ecoregion"
+#   )
+#   missing_cols <- setdiff(required_cols, names(x))
+#   if (length(missing_cols) > 0L) {
+#     stop("Missing input columns: ", paste(missing_cols, collapse = ", "))
+#   }
+
+#   df <- if (identical(guild, "All")) {
+#     x
+#   } else {
+#     dplyr::filter(x, FisheriesGuild %in% guild)
+#   }
+#   if (nrow(df) == 0L) stop("No stocks for the selected fisheries guild(s).")
+
+#   to_number <- function(z) suppressWarnings(as.numeric(as.character(z)))
+#   for (nm in c("F_FMSY", "SSB_MSYBtrigger",
+#                "Catches_in_ecoregion", "Landings_in_ecoregion")) {
+#     df[[nm]] <- to_number(df[[nm]])
+#   }
+
+#   # 2. Standard/proxy point flags.
+#   if (!"F_proxy" %in% names(df)) df$F_proxy <- FALSE
+#   if (!"B_proxy" %in% names(df)) df$B_proxy <- FALSE
+#   df <- dplyr::mutate(
+#     df,
+#     ProxyFlag = dplyr::if_else(
+#       (F_proxy %in% TRUE) | (B_proxy %in% TRUE),
+#       "Proxy reference point", "Reference point"
+#     )
+#   )
+
+#   # 3. Classify using coordinates, not SAG's old Status column.
+#   # Negative ratios are invalid too: they belong in the unknown panel.
+#   valid_f <- is.finite(df$F_FMSY) & df$F_FMSY >= 0
+#   valid_b <- is.finite(df$SSB_MSYBtrigger) & df$SSB_MSYBtrigger >= 0
+#   known <- valid_f & valid_b
+
+#   df$KobeStatus <- dplyr::case_when(
+#     !known ~ "Unknown",
+#     df$F_FMSY <= 1 & df$SSB_MSYBtrigger >= 1 ~ "Green",
+#     df$F_FMSY > 1 & df$SSB_MSYBtrigger < 1 ~ "Red",
+#     TRUE ~ "Orange"
+#   )
+#   df$KobePanel <- ifelse(known, "Kobe", "Unknown")
+#   df$UnknownReason <- dplyr::case_when(
+#     !valid_f & !valid_b ~ "F/Fref and B/Bref unavailable or invalid",
+#     !valid_f ~ "F/Fref unavailable or invalid",
+#     !valid_b ~ "B/Bref unavailable or invalid",
+#     TRUE ~ ""
+#   )
+#   df$KobeDescription <- dplyr::case_when(
+#     df$KobeStatus == "Green" ~
+#       "Biomass above threshold; fishing pressure sustainable",
+#     df$KobeStatus == "Red" ~
+#       "Biomass below threshold; overfishing occurring",
+#     df$KobeStatus == "Orange" & df$F_FMSY > 1 ~
+#       "Biomass above threshold; overfishing occurring",
+#     df$KobeStatus == "Orange" & df$SSB_MSYBtrigger < 1 ~
+#       "Biomass below threshold; fishing pressure below threshold",
+#     TRUE ~ "Status unknown"
+#   )
+
+#   status_pal <- c(
+#     Green = "#4daf4a", Orange = "#ff8c00",
+#     Red = "#e41a1c", Unknown = "#d3d3d3"
+#   )
+#   df$status_hex <- unname(status_pal[df$KobeStatus])
+
+#   # 4. Catch/landings fallback (0 remains a valid reported quantity).
+#   catch_value <- df$Catches_in_ecoregion
+#   landing_value <- df$Landings_in_ecoregion
+#   catch_value[!is.finite(catch_value) | catch_value < 0] <- NA_real_
+#   landing_value[!is.finite(landing_value) | landing_value < 0] <- NA_real_
+#   df$CatchSizeValue <- dplyr::coalesce(catch_value, landing_value)
+#   df$CatchSizeSource <- dplyr::case_when(
+#     !is.na(catch_value) ~ "Catches in ecoregion",
+#     !is.na(landing_value) ~ "Landings in ecoregion",
+#     TRUE ~ "No catch/landing data"
+#   )
+
+#   # 5. ONE size scale for both panels (including unknown-status stocks).
+#   size_values <- df$CatchSizeValue[is.finite(df$CatchSizeValue)]
+#   c_min <- if (length(size_values)) min(size_values) else NA_real_
+#   c_max <- if (length(size_values)) max(size_values) else NA_real_
+
+#   scale_catches <- function(values) {
+#     out <- rep(min_point_size, length(values))
+#     good <- is.finite(values) & values >= 0
+#     if (!any(good) || !is.finite(c_min)) return(out)
+#     if (c_min == c_max) {
+#       out[good] <- (min_point_size + max_point_size) / 2
+#     } else {
+#       out[good] <- min_point_size +
+#         (sqrt(values[good]) - sqrt(c_min)) /
+#         (sqrt(c_max) - sqrt(c_min)) *
+#         (max_point_size - min_point_size)
+#     }
+#     pmax(min_point_size, pmin(max_point_size, out))
+#   }
+
+#   df$point_size <- if (isTRUE(size_by_catches)) {
+#     scale_catches(df$CatchSizeValue)
+#   } else {
+#     rep(12, nrow(df))
+#   }
+#   if (isTRUE(return_data)) return(df)
+
+#   # 6. Derive linear main-axis limits from stocks with both ratios.
+#   plot_df <- df[known, , drop = FALSE]
+#   unknown_df <- df[!known, , drop = FALSE]
+#   has_unknown <- nrow(unknown_df) > 0L
+
+#   if (nrow(plot_df) > 0L) {
+#     xmin <- min(c(plot_df$F_FMSY, 1))
+#     xmax <- max(c(plot_df$F_FMSY, 1))
+#     ymin <- min(c(plot_df$SSB_MSYBtrigger, 1))
+#     ymax <- max(c(plot_df$SSB_MSYBtrigger, 1))
+#     xpad <- max(0.1, (xmax - xmin) * 0.10)
+#     ypad <- max(0.1, (ymax - ymin) * 0.10)
+#     x_range <- c(max(0, xmin - xpad), xmax + xpad)
+#     y_range <- c(max(0, ymin - ypad), ymax + ypad)
+#   } else {
+#     x_range <- c(0, 2)
+#     y_range <- c(0, 2)
+#   }
+
+#   # 7. Hover text, with original values retained.
+#   html_safe <- function(z) {
+#     z <- ifelse(is.na(z), "NA", as.character(z))
+#     z <- gsub("&", "&amp;", z, fixed = TRUE)
+#     z <- gsub("<", "&lt;", z, fixed = TRUE)
+#     gsub(">", "&gt;", z, fixed = TRUE)
+#   }
+#   format_quantity <- function(v) {
+#     ifelse(
+#       is.finite(v),
+#       format(round(v, 0), big.mark = ",", scientific = FALSE, trim = TRUE),
+#       "NA"
+#     )
+#   }
+#   format_ratio <- function(v) {
+#     ifelse(is.finite(v) & v >= 0, sprintf("%.2f", v), "NA")
+#   }
+
+#   df$hover_text <- paste0(
+#     "<b>", html_safe(df$StockKeyLabel), "</b><br>",
+#     "F/Fref: ", format_ratio(df$F_FMSY), "<br>",
+#     "B/Bref: ", format_ratio(df$SSB_MSYBtrigger), "<br>",
+#     "Kobe status: ", df$KobeStatus, "<br>",
+#     ifelse(df$KobeStatus == "Unknown", df$UnknownReason, df$KobeDescription),
+#     "<br>", df$CatchSizeSource, ": ", format_quantity(df$CatchSizeValue),
+#     " t"
+#   )
+#   plot_df <- df[known, , drop = FALSE]
+#   unknown_df <- df[!known, , drop = FALSE]
+
+#   p <- plotly::plot_ly()
+#   stock_annotations <- list()
+
+#   # 8. Main Kobe markers (same symbols, colours, and labels as v2).
+#   add_kobe_points <- function(plot, data, symbol, line_width, opacity) {
+#     if (nrow(data) == 0L) return(plot)
+
+#     for (status_name in unique(data$KobeStatus)) {
+#       sub <- data[data$KobeStatus == status_name, , drop = FALSE]
+#       col <- status_pal[[status_name]]
+#       marker_line <- if (identical(symbol, "circle-open")) {
+#         list(color = col, width = line_width)
+#       } else {
+#         list(color = "#333333", width = 0.1)
+#       }
+
+#       plot <- plotly::add_markers(
+#         plot,
+#         data = sub,
+#         x = ~F_FMSY, y = ~SSB_MSYBtrigger,
+#         marker = list(
+#           symbol = symbol, size = sub$point_size,
+#           color = col, line = marker_line
+#         ),
+#         customdata = ~hover_text,
+#         hovertemplate = "%{customdata}<extra></extra>",
+#         showlegend = FALSE, opacity = opacity, inherit = FALSE
+#       )
+
+#       for (k in seq_len(nrow(sub))) {
+#         # In the split view, place labels for right-edge stocks to their
+#         # left, reducing spillover into the unknown-status panel.
+#         at_right_edge <- has_unknown &&
+#           sub$F_FMSY[[k]] > (x_range[[2]] - 0.20 * diff(x_range))
+#         label_shift <- sub$point_size[[k]] / 2 + 8
+
+#         stock_annotations[[length(stock_annotations) + 1L]] <<- list(
+#           x = sub$F_FMSY[[k]], y = sub$SSB_MSYBtrigger[[k]],
+#           xref = "x", yref = "y",
+#           text = html_safe(sub$StockKeyLabel[[k]]),
+#           xanchor = if (at_right_edge) "right" else "left",
+#           yanchor = "middle",
+#           xshift = if (at_right_edge) -label_shift else label_shift,
+#           showarrow = FALSE,
+#           font = list(size = 10, color = "#333333")
+#         )
+#       }
+#     }
+#     plot
+#   }
+
+#   p <- add_kobe_points(
+#     p, plot_df[plot_df$ProxyFlag == "Reference point", , drop = FALSE],
+#     "circle", 0.1, 0.75
+#   )
+#   p <- add_kobe_points(
+#     p, plot_df[plot_df$ProxyFlag == "Proxy reference point", , drop = FALSE],
+#     "circle-open", 2, 1
+#   )
+
+#   # 9. Unknown panel: compact stock list with size-consistent grey circles.
+#   # Separate x3/y3 axes are independent of the F/B axes.
+#   if (has_unknown) {
+#     unknown_df <- dplyr::arrange(
+#       unknown_df, dplyr::desc(CatchSizeValue), StockKeyLabel
+#     )
+#     unknown_df$PanelX <- rep(0.13, nrow(unknown_df))
+#     unknown_df$PanelY <- rev(seq_len(nrow(unknown_df)))
+#     unknown_df$PanelLabel <- substr(as.character(unknown_df$StockKeyLabel), 1, 24)
+
+#     for (proxy_type in c("Reference point", "Proxy reference point")) {
+#       sub <- unknown_df[
+#         unknown_df$ProxyFlag == proxy_type, , drop = FALSE
+#       ]
+#       if (nrow(sub) == 0L) next
+#       is_proxy <- identical(proxy_type, "Proxy reference point")
+
+#       p <- plotly::add_trace(
+#         p,
+#         data = sub,
+#         type = "scatter", mode = "markers+text",
+#         x = ~PanelX, y = ~PanelY,
+#         xaxis = "x3", yaxis = "y3",
+#         text = ~PanelLabel, textposition = "middle right",
+#         textfont = list(size = 10, color = "#333333"),
+#         marker = list(
+#           symbol = if (is_proxy) "circle-open" else "circle",
+#           size = sub$point_size,
+#           color = if (is_proxy) "#858585" else status_pal[["Unknown"]],
+#           line = list(
+#             color = if (is_proxy) "#858585" else "#333333",
+#             width = if (is_proxy) 2 else 0.1
+#           )
+#         ),
+#         customdata = ~hover_text,
+#         hovertemplate = "%{customdata}<extra></extra>",
+#         showlegend = FALSE, inherit = FALSE,
+#         cliponaxis = FALSE
+#       )
+#     }
+#   }
+
+#   # 10. Legend for standard / proxy markers (unchanged).
+#   legend_defs <- list(
+#     "Reference point" = list(symbol = "circle", width = 0.1),
+#     "Proxy reference point" = list(symbol = "circle-open", width = 1.8)
+#   )
+#   for (nm in names(legend_defs)) {
+#     def <- legend_defs[[nm]]
+#     p <- plotly::add_markers(
+#       p, x = -1, y = -1,
+#       xaxis = "x2", yaxis = "y2", name = nm,
+#       marker = list(
+#         symbol = def$symbol, size = 12, color = "#000000",
+#         line = list(color = "#000000", width = def$width)
+#       ),
+#       legendgroup = "reference_type", showlegend = TRUE,
+#       hoverinfo = "skip", inherit = FALSE
+#     )
+#   }
+
+#   # 11. Catch-size key in the RIGHT SIDEBAR, not below the plot.
+#   # A separate Cartesian scatter axis retains the true pixel marker
+#   # diameters and avoids Plotly's built-in legend-marker size cap.
+#   has_size_key <- isTRUE(size_by_catches) && length(size_values) > 0L
+#   key_values <- numeric(0)
+#   key_sizes <- numeric(0)
+
+#   if (has_size_key) {
+#     probs <- if (n_size_legend == 1L) {
+#       0.5
+#     } else {
+#       seq(0, 1, length.out = n_size_legend)
+#     }
+#     key_values <- unique(as.numeric(stats::quantile(
+#       size_values, probs = probs, na.rm = TRUE, names = FALSE
+#     )))
+#     key_sizes <- scale_catches(key_values)
+
+#     # Use numeric positions on y4; list ascending values from top down.
+#     key_y <- rev(seq_along(key_values))
+#     key_labels <- paste0(format_quantity(key_values), " t")
+#     p <- plotly::add_trace(
+#       p,
+#       type = "scatter", mode = "markers+text",
+#       x = rep(0.18, length(key_values)), y = key_y,
+#       xaxis = "x4", yaxis = "y4",
+#       marker = list(
+#         symbol = "circle",
+#         size = as.numeric(key_sizes),
+#         sizemode = "diameter", sizeref = 1,
+#         color = "rgba(140,140,140,0.45)",
+#         line = list(color = "#666666", width = 1)
+#       ),
+#       text = key_labels, textposition = "middle right",
+#       textfont = list(size = 11, color = "#333333"),
+#       hoverinfo = "skip", showlegend = FALSE,
+#       cliponaxis = FALSE, inherit = FALSE
+#     )
+#   }
+
+#   # 12. Layout. The side column contains unknown stocks and, if enabled,
+#   # a distinct catch-size key below them. Nothing is added below the Kobe
+#   # plot, so the size key cannot disappear below the viewport.
+#   has_side_panel <- has_unknown || has_size_key
+#   main_domain <- if (has_side_panel) c(0, 0.72) else c(0, 1)
+#   side_domain <- c(0.79, 0.99)
+#   legend_outside <- has_side_panel
+
+#   # Allocate sufficient physical height to retain true marker diameters.
+#   unknown_needed_px <- if (has_unknown) {
+#     nrow(unknown_df) * max(unknown_row_px, max_point_size + 8)
+#   } else 0
+#   key_needed_px <- if (has_size_key) {
+#     length(key_values) * (max_point_size + 16)
+#   } else 0
+#   plot_height <- if (has_side_panel) {
+#     max(700, ceiling(unknown_needed_px + key_needed_px + 230))
+#   } else NULL
+#   drawable_height <- if (has_side_panel) plot_height - 55 - 70 else 650
+
+#   # With two panels, allocate the size key its own portion of the sidebar.
+#   # When no unknown stocks exist, the key occupies the upper sidebar.
+#   if (has_size_key && has_unknown) {
+#     key_fraction <- min(0.72, max(0.22, key_needed_px / drawable_height))
+#     key_domain <- c(0, key_fraction)
+#     unknown_domain <- c(key_fraction + 0.06, 1)
+#     key_header_y <- key_fraction + 0.028
+#   } else if (has_size_key) {
+#     key_domain <- c(0.13, 0.89)
+#     unknown_domain <- c(0, 1)
+#     key_header_y <- 0.955
+#   } else {
+#     key_domain <- NULL
+#     unknown_domain <- c(0, 1)
+#     key_header_y <- NA_real_
+#   }
+
+#   layout_shapes <- list(
+#     list(
+#       type = "line", x0 = 1, x1 = 1,
+#       y0 = y_range[[1]], y1 = y_range[[2]],
+#       line = list(color = "#4D4D4D", dash = "dash")
+#     ),
+#     list(
+#       type = "line", x0 = x_range[[1]], x1 = x_range[[2]],
+#       y0 = 1, y1 = 1,
+#       line = list(color = "#4D4D4D", dash = "dash")
+#     )
+#   )
+#   layout_annotations <- stock_annotations
+
+#   if (has_unknown) {
+#     layout_shapes <- c(
+#       list(
+#         list(
+#           type = "rect", xref = "paper", yref = "paper",
+#           x0 = 0.78, x1 = 1, y0 = unknown_domain[[1]], y1 = 1,
+#           fillcolor = "rgba(245,245,245,0.55)",
+#           line = list(width = 0), layer = "below"
+#         ),
+#         list(
+#           type = "line", xref = "paper", yref = "paper",
+#           x0 = 0.765, x1 = 0.765, y0 = 0, y1 = 1,
+#           line = list(color = "#CCCCCC", width = 1)
+#         )
+#       ),
+#       layout_shapes
+#     )
+#     layout_annotations[[length(layout_annotations) + 1L]] <- list(
+#       x = 0.89, y = 1.035, xref = "paper", yref = "paper",
+#       text = paste0("<b>Unknown status (", nrow(unknown_df), ")</b>"),
+#       xanchor = "center", yanchor = "bottom", showarrow = FALSE,
+#       font = list(size = 12, color = "#333333")
+#     )
+#   }
+
+#   if (has_size_key) {
+#     layout_annotations[[length(layout_annotations) + 1L]] <- list(
+#       x = 0.89, y = key_header_y,
+#       xref = "paper", yref = "paper",
+#       text = "<b>Circle size (tonnes)</b>",
+#       xanchor = "center", yanchor = "middle", showarrow = FALSE,
+#       font = list(size = 11, color = "#333333")
+#     )
+#     if (has_unknown) {
+#       layout_shapes[[length(layout_shapes) + 1L]] <- list(
+#         type = "line", xref = "paper", yref = "paper",
+#         x0 = 0.79, x1 = 0.99,
+#         y0 = key_fraction + 0.049, y1 = key_fraction + 0.049,
+#         line = list(color = "#DDDDDD", width = 1)
+#       )
+#     }
+#   }
+
+#   layout_annotations[[length(layout_annotations) + 1L]] <- list(
+#     x = 1, y = -0.12, xref = "paper", yref = "paper",
+#     xanchor = "right", yanchor = "top", showarrow = FALSE,
+#     text = paste0(
+#       "ICES Stock Assessment Database, ",
+#       format(Sys.Date(), "%d-%b-%y"), ". ICES, Copenhagen"
+#     ),
+#     font = list(size = 10)
+#   )
+
+#   p <- plotly::layout(
+#     p,
+#     height = plot_height,
+#     paper_bgcolor = "white", plot_bgcolor = "white",
+#     xaxis = list(
+#       title = "F/Fref", domain = main_domain,
+#       range = x_range, zeroline = FALSE
+#     ),
+#     yaxis = list(
+#       title = "B/Bref", domain = c(0, 1),
+#       range = y_range, zeroline = FALSE
+#     ),
+#     xaxis2 = list(
+#       overlaying = "x", visible = FALSE, range = c(0, 1),
+#       fixedrange = TRUE, autorange = FALSE
+#     ),
+#     yaxis2 = list(
+#       overlaying = "y", visible = FALSE, range = c(0, 1),
+#       fixedrange = TRUE, autorange = FALSE
+#     ),
+#     xaxis3 = if (has_unknown) list(
+#       domain = side_domain, anchor = "y3", range = c(0, 1),
+#       visible = FALSE, fixedrange = TRUE
+#     ) else NULL,
+#     yaxis3 = if (has_unknown) list(
+#       domain = unknown_domain, anchor = "x3",
+#       range = c(0.5, nrow(unknown_df) + 0.5),
+#       visible = FALSE, fixedrange = TRUE
+#     ) else NULL,
+#     xaxis4 = if (has_size_key) list(
+#       domain = side_domain, anchor = "y4", range = c(0, 1),
+#       visible = FALSE, fixedrange = TRUE
+#     ) else NULL,
+#     yaxis4 = if (has_size_key) list(
+#       domain = key_domain, anchor = "x4",
+#       range = c(0.5, length(key_values) + 0.5),
+#       visible = FALSE, fixedrange = TRUE
+#     ) else NULL,
+#     shapes = layout_shapes,
+#     legend = list(
+#       title = list(text = "ICES reference point"),
+#       x = if (legend_outside) 1.02 else 0.98,
+#       y = 0.98,
+#       xanchor = if (legend_outside) "left" else "right",
+#       yanchor = "top",
+#       bgcolor = "rgba(255,255,255,0.90)",
+#       bordercolor = "#D9D9D9", borderwidth = 1,
+#       tracegroupgap = 18
+#     ),
+#     hovermode = "closest",
+#     margin = list(
+#       l = 90, r = if (legend_outside) 280 else 30,
+#       t = if (has_unknown) 55 else 40,
+#       b = 70
+#     ),
+#     annotations = layout_annotations
+#   )
+
+#   plotly::config(
+#     p,
+#     toImageButtonOptions = list(
+#       filename = paste0("Kobe_v3_", format(Sys.Date(), "%d-%b-%y")),
+#       format = "png", scale = 3
+#     )
+#   )
+# }
+
+
 # Interactive summary of precautionary stock status by fisheries guild.
 # Requires ratios calculated using the SELECTED (precautionary) references.
 # This code does NOT use SAG's FishingPressure, StockSize or Status columns.
