@@ -80,13 +80,70 @@ get_ecoregion_acronym <- function(ecoregion) {
 #' head(species)
 #' }
 #'
-load_asfis_species <- function() {
-#   url <- "http://www.fao.org/fishery/static/ASFIS/ASFIS_sp.zip"
-    species <- read.csv("./Boot/ASFIS_sp_2025.csv", na.strings = "", stringsAsFactors = FALSE)
-    species <- dplyr::select(species, English_name, Scientific_Name, Alpha3_Code)
-    return(species)
-}
+# load_asfis_species <- function() {
+# #   url <- "http://www.fao.org/fishery/static/ASFIS/ASFIS_sp_2026.1.zip"
+#     species <- read.csv("./Boot/ASFIS_sp_2026.1.csv", na.strings = "", stringsAsFactors = FALSE)
+#     species <- dplyr::select(species, English_name, Scientific_Name, Alpha3_Code)
+#     return(species)
+# }
 
+load_asfis_species <- function() {
+
+  # 1. Define the FAO URL
+  url <- "http://www.fao.org/fishery/static/ASFIS/ASFIS_sp_2026.1.zip"
+
+  # 2. Create a temporary directory
+  temp_dir <- tempfile()
+  dir.create(temp_dir)
+
+  # Automatically remove temporary files when the function finishes
+  on.exit(unlink(temp_dir, recursive = TRUE), add = TRUE)
+
+  # 3. Download the ZIP file
+  zip_file <- file.path(temp_dir, "ASFIS_sp_2026.1.zip")
+
+  utils::download.file(
+    url = url,
+    destfile = zip_file,
+    mode = "wb",
+    quiet = TRUE
+  )
+
+  # 4. Identify the CSV file inside the ZIP
+  zip_contents <- utils::unzip(zip_file, list = TRUE)$Name
+
+  csv_file <- zip_contents[
+    grepl("ASFIS_sp_2026\\.1\\.csv$", zip_contents)
+  ]
+
+  if (length(csv_file) != 1) {
+    stop("Could not identify the ASFIS CSV file in the ZIP.")
+  }
+
+  # 5. Extract the CSV file
+  utils::unzip(
+    zipfile = zip_file,
+    files = csv_file,
+    exdir = temp_dir
+  )
+
+  # 6. Read the CSV (original workflow)
+  species <- read.csv(
+    file.path(temp_dir, csv_file),
+    na.strings = "",
+    stringsAsFactors = FALSE
+  )
+
+  # 7. Keep only the required columns (original workflow)
+  species <- dplyr::select(
+    species,
+    English_name,
+    Scientific_Name,
+    Alpha3_Code
+  )
+
+  return(species)
+}
 
 #' Load ICES historical catches data
 #'
@@ -108,9 +165,59 @@ load_asfis_species <- function() {
 #' }
 #'
 #' @export
-load_historical_catches<- function(){
-        # url <- "http://ices.dk/data/Documents/CatchStats/HistoricalLandings1950-2010.zip"
-        hist <- read.csv("./Boot/ICES_historical_catches.csv", header = TRUE)#, na.strings = "", stringsAsFactors = FALSE)
+# load_historical_catches<- function(){
+#         # url <- "http://ices.dk/data/Documents/CatchStats/HistoricalLandings1950-2010.zip"
+#         hist <- read.csv("./Boot/ICES_historical_catches.csv", header = TRUE)#, na.strings = "", stringsAsFactors = FALSE)
+# }
+
+load_historical_catches <- function() {
+
+  # 1. Define the ICES download URL
+  url <- "https://www.ices.dk/data/Documents/CatchStats/HistoricalLandings1950-2010.zip"
+
+  # 2. Create a temporary directory
+  temp_dir <- tempfile()
+  dir.create(temp_dir)
+
+  # Automatically remove temporary files when finished
+  on.exit(unlink(temp_dir, recursive = TRUE), add = TRUE)
+
+  # 3. Download the ZIP file
+  zip_file <- file.path(temp_dir, "HistoricalLandings1950-2010.zip")
+
+  utils::download.file(
+    url = url,
+    destfile = zip_file,
+    mode = "wb",
+    quiet = TRUE
+  )
+
+  # 4. Identify the CSV file inside the ZIP
+  zip_contents <- utils::unzip(zip_file, list = TRUE)$Name
+
+  csv_file <- zip_contents[
+    basename(zip_contents) == "ICES_1950-2010.csv"
+  ]
+
+  if (length(csv_file) != 1) {
+    stop("Could not identify the historical catches CSV in the ZIP.")
+  }
+
+  # 5. Extract the CSV file
+  utils::unzip(
+    zipfile = zip_file,
+    files = csv_file,
+    exdir = temp_dir
+  )
+
+  # 6. Read the CSV (original workflow)
+  hist <- read.csv(
+    file.path(temp_dir, csv_file),
+    header = TRUE
+  )
+
+  # 7. Return the historical catches dataset
+  return(hist)
 }
 
 
@@ -137,10 +244,163 @@ load_historical_catches<- function(){
 #' }
 #'
 #' @export
-load_official_catches<- function(){
-        # url <- "http://ices.dk/data/Documents/CatchStats/OfficialNominalCatches.zip"
-        official <- read.csv("./Boot/ICESCatchDataset2006-2023_noConf.csv", header = TRUE)#, na.strings = "", stringsAsFactors = FALSE)
+# load_official_catches<- function(){
+#         # url <- "http://ices.dk/data/Documents/CatchStats/OfficialNominalCatches.zip"
+#         official <- read.csv("./Boot/ICESCatchDataset2006-2023_noConf.csv", header = TRUE)#, na.strings = "", stringsAsFactors = FALSE)
+# }
+
+
+load_official_catches <- function(
+    summary_file = "./Boot/confidential_data_summary.csv"
+) {
+
+  # 1. Define the ICES download URL
+  url <- "https://www.ices.dk/data/Documents/CatchStats/OfficialNominalCatches.zip"
+
+  # 2. Create a temporary directory
+  temp_dir <- tempfile()
+  dir.create(temp_dir)
+
+  # Automatically remove temporary files when finished
+  on.exit(unlink(temp_dir, recursive = TRUE), add = TRUE)
+
+  # 3. Download the ZIP file
+  zip_file <- file.path(temp_dir, "OfficialNominalCatches.zip")
+
+  utils::download.file(
+    url = url,
+    destfile = zip_file,
+    mode = "wb",
+    quiet = TRUE
+  )
+
+  # 4. Identify the CSV inside the ZIP
+  zip_contents <- utils::unzip(zip_file, list = TRUE)$Name
+
+  csv_file <- zip_contents[
+    basename(zip_contents) == "ICESCatchDataset2006-2024.csv"
+  ]
+
+  if (length(csv_file) != 1) {
+    stop("Could not identify the official catches CSV in the ZIP.")
+  }
+
+  # 5. Extract the CSV file
+  utils::unzip(
+    zipfile = zip_file,
+    files = csv_file,
+    exdir = temp_dir
+  )
+
+  # 6. Read the CSV
+  official <- read.csv(
+    file.path(temp_dir, csv_file),
+    header = TRUE,
+    stringsAsFactors = FALSE
+  )
+
+  # 7. Identify the year columns (X2024, X2023, etc.)
+  year_cols <- grep(
+    "^X[0-9]{4}$",
+    names(official),
+    value = TRUE
+  )
+
+  if (length(year_cols) == 0) {
+    stop("No year columns found in the dataset.")
+  }
+
+  # 8. Identify confidential observations ("0 c")
+  # TRUE indicates a confidential value
+  confidential_flags <- do.call(
+    cbind,
+    lapply(official[year_cols], function(x) {
+      !is.na(x) & trimws(as.character(x)) == "0 c"
+    })
+  )
+
+  # 9. Find the row and year column of each confidential value
+  confidential_positions <- which(
+    confidential_flags,
+    arr.ind = TRUE
+  )
+
+  # 10. Create a summary by Year, Country and Species
+  if (nrow(confidential_positions) > 0) {
+
+    confidential_data <- data.frame(
+      Year = as.integer(
+        sub(
+          "^X", "",
+          year_cols[confidential_positions[, 2]]
+        )
+      ),
+      Country = official$Country[confidential_positions[, 1]],
+      Species = official$Species[confidential_positions[, 1]]
+    )
+
+    confidential_data_summary <- dplyr::count(
+      confidential_data,
+      Year,
+      Country,
+      Species,
+      name = "n_confidential",
+      sort = TRUE
+    )
+
+  } else {
+
+    confidential_data_summary <- data.frame(
+      Year = integer(),
+      Country = character(),
+      Species = character(),
+      n_confidential = integer()
+    )
+  }
+
+  # 11. Save the summary permanently
+  dir.create(
+    dirname(summary_file),
+    recursive = TRUE,
+    showWarnings = FALSE
+  )
+
+  write.csv(
+    confidential_data_summary,
+    file = summary_file,
+    row.names = FALSE
+  )
+
+  # 12. Replace confidential values with NA
+for (j in seq_along(year_cols)) {
+
+  col <- year_cols[j]
+
+  # Confidential values are unknown, not zero
+  official[[col]][confidential_flags[, j]] <- NA_character_
+
+  # Convert year columns to numeric
+  official[[col]] <- as.numeric(official[[col]])
 }
+
+  # 13. Print summary information
+  message(
+    "Confidential observations found: ",
+    nrow(confidential_positions),
+    "\nAffected years: ",
+    dplyr::n_distinct(confidential_data_summary$Year),
+    "\nAffected countries: ",
+    dplyr::n_distinct(confidential_data_summary$Country),
+    "\nAffected species: ",
+    dplyr::n_distinct(confidential_data_summary$Species),
+    "\nSummary saved to: ",
+    summary_file
+  )
+
+  # 14. Return the cleaned dataset in its original wide format
+  return(official)
+}
+
 
 
 #' Format historical, official and preliminary catches for an ecoregion
@@ -1098,7 +1358,7 @@ manual_attributions <- readxl::read_excel(
 ## Ceate folders using the acronyms of the ecoregions
 for (ecoregion in ecoregions) {
         acronym <- get_ecoregion_acronym(ecoregion)
-        mkdir(paste0("./Boot/", acronym))
+        mkdir(paste0("./Boot/official_catches2026/", acronym))
 
         if (ecoregion == "Bay of Biscay and the Iberian Coast") {
           catch_dat <- format_catches_dev(
@@ -1177,7 +1437,7 @@ for (ecoregion in ecoregions) {
         
         catch_dat <- unique(catch_dat)
         msg("Saving folder: ", acronym)
-        write.taf(catch_dat, file = paste0("catch_dat_", acronym, ".csv"), dir = paste0("./Boot/", acronym, "/"), quote = TRUE)
+        write.taf(catch_dat, file = paste0("catch_dat_", acronym, ".csv"), dir = paste0("./Boot/official_catches2026/", acronym, "/"), quote = TRUE)
 }
 
 
@@ -1187,7 +1447,7 @@ for (ecoregion in ecoregions) {
 for (ecoregion in ecoregions) {
   acronym <- get_ecoregion_acronym(ecoregion)
   
-  file_path <- paste0("./Boot/", acronym, "/catch_dat_", acronym, ".csv")
+  file_path <- paste0("./Boot/official_catches2026/", acronym, "/catch_dat_", acronym, ".csv")
   
   if (file.exists(file_path)) {
     # Read the CSV file
@@ -1197,7 +1457,7 @@ for (ecoregion in ecoregions) {
     assign(acronym, catch_dat)
     
     # Save the data in an .rda file using a structured name
-    save(list = acronym, file = paste0("./data/", acronym, ".rda"))
+    save(list = acronym, file = paste0("./data/official_catches2026/", acronym, ".rda"))
     
     message("Saved: ", acronym)
   } else {

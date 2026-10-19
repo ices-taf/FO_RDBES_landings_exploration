@@ -122,7 +122,7 @@ plot_catch_trends_plotly <- function(
 
   cap_text <- paste0(
     "Historical Nominal Catches 1950–2005.<br>",
-    "Official Nominal Catches 2006–2023.<br>",
+    "Official Nominal Catches 2006–2024.<br>",
     dataUpdated, ", ICES, Copenhagen."
   )
 
@@ -343,7 +343,7 @@ save_catch_trends_html <- function(
       sort()
   }
 
-  dir.create("./output", recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path("./output", output_dir), recursive = TRUE, showWarnings = FALSE)
 
   sanitize_filename <- function(x) {
     gsub("[^A-Za-z0-9]+", "_", trimws(x))
@@ -375,7 +375,7 @@ save_catch_trends_html <- function(
 
       htmlwidgets::saveWidget(
         widget = p,
-        file = file.path("./output", paste0(file_name, ".html")),
+        file = file.path("./output", output_dir, paste0(file_name, ".html")),
         selfcontained = TRUE
       )
     }
@@ -392,7 +392,7 @@ save_catch_trends_html(
   guilds = guilds,
   types = c("Common name", "Country", "Fisheries guild"),
   ecoregion = "Bay of Biscay and the Iberian Coast",
-  output_dir = "landings_html",
+  output_dir = "official_catches2026",
   line_count = 10,
   dataUpdated = "Data updated: 2024-06-01"
 )
