@@ -1,0 +1,172 @@
+FISHERIESXPLORER — VALIDATION RECORD
+19 October 2026
+
+SCOPE
+
+This record distinguishes checks against the supplied HTML aggregates from
+checks of the new R calculations using controlled synthetic data. The original
+extendedRDBES.RData, SID RDS, and the fisheriesXplorer application source were
+not available for an end-to-end run of the user's production analysis or app.
+
+SUPPLIED HTML AND PREVIEW
+
+The supplied map contains 120 rectangle symbols and six displayed categories:
+HOM, PIL, WHB, ANE, MAC and OTH. Its embedded chart widths have a maximum of
+15 pixels and a median of approximately 2.77 pixels; 78 of 120 are narrower
+than 5 pixels. These measurements describe the stored configuration, not a
+claim that the original plugin dynamically changes its CSS size when zooming.
+
+The preview preserves every original rectangle/category value. The sum is
+214,838,934.76166666 in unspecified source units. JavaScript summation gives
+214,838,934.76166674 because of floating-point summation order; no data adjustment
+was made. UI display rounding and this machine precision difference do not
+change exported source values.
+
+The original coordinates cover the Biscay/Iberian extent. The source HTML does
+not store the requested years, weight unit or the members of its original OTH
+category. The preview explicitly labels these limits. The original polygon
+boundary was repaired and its polygon parts retained so a stray point fragment
+did not become a default Leaflet pin.
+
+With a Natural Earth 1:50m land mask, 23 display centres move into the marine
+part of their own reporting rectangle. Rectangle 15E2 has no marine display
+geometry under that mask. Its 1,363 source units (WHB 336, MAC 1,027) remain in
+the total, dropdown selection, raw outline and CSV. No quantity is apportioned
+by water area or moved between rectangles.
+
+BROWSER CHECKS: STANDALONE AND R-GENERATED HTML
+
+The same interaction checks passed on both the delivered standalone preview
+and an HTML file generated through render_fisheries_landings() followed by
+save_fisheries_map() in R.
+
+  - Initial state contains 120 reporting rectangles and the expected total.
+  - No broken-image default map markers are present.
+  - The rectangle selector contains the regional overview and all 120 cells.
+  - Composition view draws non-overlapping equal-sized donut symbols.
+  - A selected coastal donut is exactly 34 by 34 CSS pixels before and after
+    zooming to level 8. The selected cell keeps priority when other donuts are
+    omitted by the collision check.
+  - The moved anchor for 15E8 exposes its coastal-placement note.
+  - Species view switches to PIL and updates the legend to Sardine.
+  - Grid toggle and scroll-wheel zoom switch change their respective states.
+  - Selecting 15E2 retains and displays its 1,363 source units and geometry flag.
+  - CSV download in composition view produces 720 data rows (120 x 6), despite
+    a single-cell selection, and includes units and rectangle identifiers.
+  - Reinitializing the same map leaves one interface shell and does not grow
+    the map's layer count. A selected-cell overlay is removed on reset.
+  - At a 390-pixel viewport there is no horizontal document overflow and the
+    details panel is below the map.
+  - A 550-pixel-wide container on a desktop viewport also stacks the panel.
+  - No browser JavaScript errors or remote network requests occur with the
+    default offline map. Requests were blocked during the interaction checks.
+
+Visual inspection also covered the default landings view, composition view,
+coastal selection and the mobile layout. Overlap thinning varies with available
+map area: at the initial desktop test extent the standalone file drew 48 of 119
+eligible marine symbols; the R widget's shorter viewport drew 28. This affects
+symbol visibility only, not quantities or selectable rectangles.
+
+Three further client scenarios passed: all-null values stay unavailable; genuine
+zeros display as zero with undefined shares; and empty species lists disable
+Composition/Species while retaining rectangle selection. None creates a donut
+or throws a JavaScript exception. Each rerender leaves one interface shell.
+
+R DATA PREPARATION CHECKS
+
+Controlled fixtures verified:
+
+  - An intentionally large 2021 record is excluded from a 2022–2023 request.
+  - Kilograms are converted to tonnes once.
+  - Species use a common rectangle-year denominator: MAC values of 1,000 kg
+    and 3,000 kg average to 2 t; PIL with 2,000 kg only in the first year of
+    the same represented rectangle averages to 1 t over both years.
+  - An explicit missing weight excludes that year for all selected species.
+  - Strict policy keeps a cell with a missing selected year unknown.
+  - Available policy preserves a usable zero year and reports one usable year
+    when the other year is absent.
+  - Zero policy can include absent years as zero but never changes explicit
+    missing weights into zero.
+  - coverage=TRUE permits a declared complete no-record year to be zero;
+    coverage=FALSE excludes a year despite available numerical records.
+  - The species crossing a percentage target is retained: weights 85 and 15
+    with a target of 80 retain the first separately, keep total 100, and give
+    Other a share of 0.15.
+  - ANK=10 and MON=20 recode to ANF=30 before lookup and aggregation.
+  - A conflicting Pelagic/Demersal lookup assignment raises an error.
+  - Under available policy, a year invalidated by one species is excluded from
+    every species denominator in that rectangle.
+  - Two explicit missing source rows are recorded as two missing rows in the
+    annual diagnostics.
+  - A wholly unpublishable region and its legend totals remain unknown.
+  - Empty source data for a specified grid gives an unknown total under strict
+    policy and an empty species legend.
+
+R GEOMETRY CHECKS
+
+Synthetic land and three reporting rectangles with totals 10, 20 and 0 verified
+that a land midpoint moves into its own water polygon, a wholly land-covered
+cell has no display anchor, and a valid marine midpoint stays in place. All
+three raw rectangle features survive, and the total remains 30.
+
+The hidden feature retains an explicit null geometry key. A manual anchor on
+land is rejected; a valid same-cell marine override is accepted and recorded.
+Centre coordinates inconsistent with their ICES rectangle ID are rejected.
+Empty prepared data for a known rectangle can still produce a geometry payload.
+One-year and one-member metadata remain arrays in JSON.
+
+Focused repaired-boundary fixtures verified Polygon+Point collections become
+polygon outlines; ordinary lines survive; LineString+Point collections become
+line outlines; separate valid polygon and line features remain; and point-only
+boundaries fail clearly. R named colour royalblue becomes #4169E1, lowercase hex
+becomes uppercase hex, and species-code alignment is preserved.
+
+SERIALIZATION AND R COMPATIBILITY
+
+The final R source embeds its complete client JavaScript and CSS. The wrapper
+was exercised with R 4.3.3, dplyr 1.1.4, tidyr 1.3.1, jsonlite 1.8.8, sf 1.0.15,
+htmltools 0.5.7, htmlwidgets 1.6.4 and leaflet 2.2.3. The sf runtime used GEOS
+3.12.1, GDAL 3.8.4 and PROJ 9.4.0. The browser was Chromium 155.0.8059.84.
+
+The standalone preview includes Leaflet JavaScript 1.9.4. The tested R package
+export uses its bundled Leaflet JavaScript 1.3.1; the same client passed on both.
+
+Normalizing nested GeoJSON coordinates to numeric matrices reduced the tested
+coordinate normalization plus serialization step to approximately 7.7 seconds,
+compared with approximately 111 seconds for the original deeply nested list
+serialization in this environment. These are development-environment timings,
+not a promise about production application latency.
+
+Comparison after JSON.parse covered 159,162 numeric values plus every object
+member and array shape in the preview payload. With digits=17 there were zero
+differences. Fixtures covered all GeoJSON geometry families, null geometries,
+2D/3D coordinates, holes, singleton sequences and repeated normalization.
+
+The example script was parsed and sourced. Lookup normalization, the REB rule,
+missing-column error and StockKeyLabel prefix handling were verified. A stubbed
+two-guild export-loop check verified every forwarded argument against the
+actual wrapper and preparation signatures, including years and guild overrides.
+That forwarding check did not download data or produce production maps.
+
+A final integration check sourced the assembled deliverable and passed synthetic
+source records through plot_fisheries_landings(), export_fisheries_calculations()
+and save_fisheries_map(). Three rectangles over three years produced two display
+categories and a 9-tonne regional total, with the expected common denominators
+and normalized colour. Seven calculation files and a self-contained HTML widget
+were written successfully.
+
+LIMITS
+
+These checks establish the implemented behaviour for the supplied aggregate
+preview and controlled calculation fixtures. They do not establish source units,
+the fleet-expansion interpretation of the _perVessel field, complete country or
+fleet reporting, the original years, or original OTH membership. They do not
+validate the result of the new annual averaging on the unavailable source records.
+
+The Shiny integration is supplied as a compatible renderLeaflet/leafletOutput
+recipe. Saved R-widget rendering and client reinitialization were tested; a live
+fisheriesXplorer deployment, its authentication, its content security policy and
+its host application's event/reactive behaviour were not tested or changed.
+Safari and Firefox were not part of this browser run. Coastal placement is only
+as detailed as the supplied land mask and guarantees the anchor point, not the
+entire circular glyph footprint at every zoom level.
