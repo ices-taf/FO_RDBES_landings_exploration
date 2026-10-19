@@ -404,6 +404,56 @@ names(catch_current_adj)
 head(catch_current_adj) %>% print(width = Inf)
 
 
+p6 <- plot_kobe_app_plotly_v3(catch_current_adj, "benthic", size_by_catches = TRUE, max_unknown_stocks = 20)
+file_name <- "kobe_benthic_adjusted_with_RDBES_plotly_V3_BI"
+htmlwidgets::saveWidget(
+        widget = p6,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )
+
+p7 <- plot_kobe_app_plotly_v3(catch_current_adj, "demersal", size_by_catches = TRUE, max_unknown_stocks = 20)
+file_name <- "kobe_demersal_adjusted_with_RDBES_plotly_V3_BI"
+htmlwidgets::saveWidget(
+        widget = p7,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )
+
+p8 <- plot_kobe_app_plotly_v3(catch_current_adj, "elasmobranch", size_by_catches = TRUE, max_unknown_stocks = 20)
+file_name <- "kobe_elasmobranch_adjusted_with_RDBES_plotly_V3_BI"
+htmlwidgets::saveWidget(
+        widget = p8,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )
+
+
+p9 <- plot_kobe_app_plotly_v3(catch_current_adj, "pelagic", size_by_catches = TRUE, max_unknown_stocks = 20)
+file_name <- "kobe_pelagic_adjusted_with_RDBES_plotly_V3_BI"
+htmlwidgets::saveWidget(
+        widget = p9,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )
+
+p10 <- plot_kobe_app_plotly_v3(catch_current_adj, "shellfish", size_by_catches = TRUE, max_unknown_stocks = 20)
+file_name <- "kobe_shellfish_adjusted_with_RDBES_plotly_V3_BI"
+htmlwidgets::saveWidget(
+        widget = p10,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )
+
+p11 <- plot_kobe_app_plotly_v3(catch_current_adj, "All", size_by_catches = TRUE, max_unknown_stocks = 20)
+file_name <- "kobe_all_adjusted_with_RDBES_plotly_V3_BI"
+htmlwidgets::saveWidget(
+        widget = p11,
+        file = file.path("./output/kobe_interactive/Bref_Fref-v2/", paste0(file_name,"-", Sys.Date(), ".html")),
+        selfcontained = TRUE
+      )
+
+####### ges pies
 p <- plot_GES_pies_plotly(clean_status, catch_current_adj)
 file_name <- "GES_pies_catches_guilds_adjusted_with_plotly_RDBES_BI"
 htmlwidgets::saveWidget(
