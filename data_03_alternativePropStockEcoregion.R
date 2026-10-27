@@ -480,3 +480,5 @@ if (eco_available) print(head(stock_landings, 20))
 # Even with perfect spatial mapping, overlapping biological stocks (e.g.
 # herring populations) may still require separate biological information.
 
+icesVMS::get_csquare(stat_rec = "04D6") |>
+  dplyr::count(ecoregion)

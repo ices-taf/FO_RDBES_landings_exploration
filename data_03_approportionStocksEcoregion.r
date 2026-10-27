@@ -108,13 +108,57 @@ aes(x = CLyear, y = ShareLandingsInEcoregion, color = CS)) +
          y = "Share of Landings (%)") +
     theme_minimal()
 
-############################ testing alternative below ########
 
+
+
+
+
+
+
+
+###### checks for nephorsp
+library(sf)
+library(dplyr)
+
+nephrops_fu <- st_read(
+  "./Boot/ICES_nephrops_FU/Nephrops Functional Units.shp",
+  quiet = TRUE
+)
+
+# Inspect the functional-unit labels
+nephrops_fu |>
+  st_drop_geometry() |>
+  select(fu_no)
+
+# Check the coordinate reference system
+st_crs(nephrops_fu)
+
+
+
+
+
+############################ testing alternative below ########
+library(dplyr)
 library(icesVocab)
 detail <- getCodeDetail("ICES_StockCode", code = "nep.fu.31")
 area <- detail$children %>% filter(Key == "ICES_Area")
 detail$children
-getCodeList("ICES_Area", code = "27.4.a")
+getCodeList("ICES_Area", code = "27.8.c")
+
+library(icesVocab)
+library(dplyr)
+
+stock_area_lookup <- getCodeTypeRelation(
+  "ICES_StockCode",
+  "ICES_Area"
+)
+
+stock_area_lookup |>
+  filter(
+    ICES_StockCode %in% c("nep.fu.25", "nep.fu.31")
+  ) |>
+  distinct(ICES_StockCode, ICES_Area)
+
 
 library(icesSD)
 sid <- getSD(year = 2026)
