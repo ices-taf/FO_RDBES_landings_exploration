@@ -102,8 +102,8 @@ htmlwidgets::saveWidget(
         selfcontained = TRUE
       )
 
-
-
+head(discard_estimated) 
+write.csv(discard_estimated, "output/discard_estimated.csv", row.names = FALSE)
 
 ######################## testing new methid
 library(dplyr)
