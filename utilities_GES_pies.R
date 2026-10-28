@@ -1773,18 +1773,18 @@ plot_kobe_app_plotly_v2 <- function(
     df,
     CatchSizeValue = dplyr::coalesce(
       dplyr::if_else(
-        is.finite(Catches_in_ecoregion) & Catches_in_ecoregion >= 0,
-        Catches_in_ecoregion, NA_real_
+        is.finite(Catches_ecoregion) & Catches_ecoregion >= 0,
+        Catches_ecoregion, NA_real_
       ),
       dplyr::if_else(
-        is.finite(Landings_in_ecoregion) & Landings_in_ecoregion >= 0,
-        Landings_in_ecoregion, NA_real_
+        is.finite(Landings_ecoregion) & Landings_ecoregion >= 0,
+        Landings_ecoregion, NA_real_
       )
     ),
     CatchSizeSource = dplyr::case_when(
-      is.finite(Catches_in_ecoregion) & Catches_in_ecoregion >= 0 ~
+      is.finite(Catches_ecoregion) & Catches_ecoregion >= 0 ~
         "Catches in ecoregion",
-      is.finite(Landings_in_ecoregion) & Landings_in_ecoregion >= 0 ~
+      is.finite(Landings_ecoregion) & Landings_ecoregion >= 0 ~
         "Landings in ecoregion",
       TRUE ~ "No catch/landing data"
     )
@@ -3728,15 +3728,15 @@ plot_GES_pies_plotly_v2 <- function(
   if (!"StockKeyLabel" %in% names(y)) {
     stop("y must contain StockKeyLabel.")
   }
-  if (!any(c("Catches_in_ecoregion", "Landings_in_ecoregion") %in% names(y))) {
-    stop("y (or x if y is NULL) must contain Catches_in_ecoregion ",
-         "and/or Landings_in_ecoregion.")
+  if (!any(c("Catches_ecoregion", "Landings_ecoregion") %in% names(y))) {
+    stop("y (or x if y is NULL) must contain Catches_ecoregion ",
+         "and/or Landings_ecoregion.")
   }
-  if (!"Catches_in_ecoregion" %in% names(y)) {
-    y$Catches_in_ecoregion <- NA_real_
+  if (!"Catches_ecoregion" %in% names(y)) {
+    y$Catches_ecoregion <- NA_real_
   }
-  if (!"Landings_in_ecoregion" %in% names(y)) {
-    y$Landings_in_ecoregion <- NA_real_
+  if (!"Landings_ecoregion" %in% names(y)) {
+    y$Landings_ecoregion <- NA_real_
   }
 
   to_number <- function(z) suppressWarnings(as.numeric(as.character(z)))
@@ -3812,8 +3812,8 @@ plot_GES_pies_plotly_v2 <- function(
   catch_df <- y |>
     dplyr::transmute(
       StockKeyLabel = as.character(StockKeyLabel),
-      catch_value = clean_nonnegative(Catches_in_ecoregion),
-      landing_value = clean_nonnegative(Landings_in_ecoregion)
+      catch_value = clean_nonnegative(Catches_ecoregion),
+      landing_value = clean_nonnegative(Landings_ecoregion)
     ) |>
     dplyr::filter(!is.na(StockKeyLabel), nzchar(StockKeyLabel)) |>
     dplyr::mutate(
@@ -3876,8 +3876,8 @@ plot_GES_pies_plotly_v2 <- function(
     dplyr::filter(is.finite(CATCH), CATCH > 0)
 
   if (nrow(weighted) == 0L) {
-    stop("No stocks have positive Catches_in_ecoregion or ",
-         "Landings_in_ecoregion values.")
+    stop("No stocks have positive Catches_ecoregion or ",
+         "Landings_ecoregion values.")
   }
 
   # Stock-level hover text within each status slice.

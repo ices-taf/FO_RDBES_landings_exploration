@@ -36,7 +36,7 @@ stock_name_map <- tibble::tribble(
   "hom.27.2a3a4a5b6a7a-ce-k8", "hom.27.2a4a5b6a7a-ce-k8"
 )
 
-catch_current <- catch_current_v2
+# catch_current <- catch_current_v2
 
 # identify the RDBES stock names represented in catch_current
 catch_stocks <- catch_current %>%
