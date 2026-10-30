@@ -425,9 +425,14 @@ stockstatus_CLD_current_proxy <- function(x) {
     dplyr::slice_head(n = 1) %>%
     dplyr::ungroup() %>%
     dplyr::select(
-      StockKeyLabel, FisheriesGuild, F_FMSY,
-      Catches, Landings, Discards, FMSY, FishingPressure,
-      F_proxy = FMSY_is_proxy, F_proxy_name = FMSY_proxy_name
+  StockKeyLabel,
+  F_Year = Year,
+  FisheriesGuild,
+  F_FMSY,
+  Catches, Landings, Discards,
+  FMSY, FishingPressure,
+  F_proxy = FMSY_is_proxy,
+  F_proxy_name = FMSY_proxy_name
     )
 
   # ---------- B side: choose latest of AY_latest or AY_latest - 1 with MSYBtrigger ----------
@@ -443,14 +448,25 @@ stockstatus_CLD_current_proxy <- function(x) {
       SSB_MSYBtrigger = ifelse(!is.na(MSYBtrigger), StockSize / MSYBtrigger, NA_real_)
     ) %>%
     dplyr::select(
-      StockKeyLabel, Year, FisheriesGuild,
-      SSB_MSYBtrigger, StockSize, MSYBtrigger,
-      B_proxy = MSYB_is_proxy, B_proxy_name = MSYB_proxy_name
-    )
+  StockKeyLabel,
+  B_Year = Year,
+  FisheriesGuild,
+  SSB_MSYBtrigger,
+  StockSize, MSYBtrigger,
+  B_proxy = MSYB_is_proxy,
+  B_proxy_name = MSYB_proxy_name
+)
 
   # ---------- Join F and B sides ----------
   df4 <- dplyr::full_join(df_F, df_B, by = c("StockKeyLabel","FisheriesGuild"))
-
+  df4 <- dplyr::full_join(
+  df_F,
+  df_B,
+  by = c("StockKeyLabel", "FisheriesGuild")
+) %>%
+  dplyr::mutate(
+    Year = F_Year
+  )
   # ---------- Status classification ----------
   df4 <- df4 %>%
     dplyr::mutate(

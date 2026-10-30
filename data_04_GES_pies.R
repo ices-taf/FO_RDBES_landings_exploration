@@ -31,10 +31,10 @@ source("utilities_GES_pies.R")
 source("utilities.R")
 source("utilities_discards.R")
 
-SAG_Settings <- getSAG_SettingsEcoregion("Bay of Biscay and the Iberian Coast")
+SAG_Settings <- getSAG_SettingsEcoregion("Icelandic Waters")
 
-sid <- getSID(2026, "Bay of Biscay and the Iberian Coast")
-sag <- getSAG_ecoregion_new("Bay of Biscay and the Iberian Coast")
+sid <- getSID(2026, "Icelandic Waters")
+sag <- getSAG_ecoregion_new("Icelandic Waters")
 
 # Reviewed precautionary reference-point selection for ICES SAG.
 #
@@ -507,6 +507,14 @@ attach_refpoint_provenance_v3 <- function(stock_current, current_v3) {
 # EXAMPLE - run after sourcing utilities_GES_pies.R, utilities.R, and
 # audit_sag_reference_points.R, and after obtaining sag, sid, SAG_Settings:
 #
+make_sag_refpoint_policy(
+  original,
+  SAG_Settings,
+  "./data/SAG_reference_point_policy_approved_IS.csv",
+  previous_policy = "./data/SAG_reference_point_policy_approved.csv"
+)
+
+
 original <- format_sag(sag, sid)
 result <- add_proxyRefPoints_v3(
   original, SAG_Settings,
@@ -542,20 +550,21 @@ View(result$current_v3)
 View(result$comparison |> dplyr::filter(changed))
 View(result$candidates |> dplyr::filter(winner_v3))
 View(result$unresolved_settings)
-#
+
+test <- catch_current_v3 %>% filter(StockKeyLabel == "ane.27.9aW") %>% print(width = Inf)
 catch_current_v3 <- stockstatus_CLD_current_proxy(result$sag)
 catch_current_v3 <- attach_refpoint_provenance_v3(
   catch_current_v3, result$current_v3
 )
 #
 dir.create("./output/reference_points", recursive = TRUE, showWarnings = FALSE)
-saveRDS(result, "./output/reference_points/SAG_reference_v3_audit.rds")
+saveRDS(result, "./output/reference_points/SAG_reference_v3_audit_IS.rds")
 utils::write.csv(result$current_v3,
-  "./output/reference_points/SAG_refpoints_v3_by_stock.csv", row.names = FALSE)
+  "./output/reference_points/SAG_refpoints_v3_by_stock_IS.csv", row.names = FALSE)
 utils::write.csv(result$comparison,
-  "./output/reference_points/SAG_v2_vs_v3.csv", row.names = FALSE)
+  "./output/reference_points/SAG_v2_vs_v3_IS.csv", row.names = FALSE)
 utils::write.csv(result$candidates,
-  "./output/reference_points/SAG_v3_all_candidates.csv", row.names = FALSE)
+  "./output/reference_points/SAG_v3_all_candidates_IS.csv", row.names = FALSE)
 
 
 catch_current_v3 <- stockstatus_CLD_current_proxy(result$sag)
@@ -584,7 +593,7 @@ share_lookup <- new_proportions %>%
     RDBES_share_year = as.integer(CLyear),
     share = ShareLandingsInEcoregion / 100
   )
-
+share_lookup
 # Check that the lookup has unique stock-year keys and valid proportions.
 stopifnot(
   !anyDuplicated(
@@ -596,17 +605,19 @@ stopifnot(
   )
 )
 
-# 3. Choose the share year, join by stock AND year, and apply the share.
 catch_current_adj <- catch_current_v3 %>%
   mutate(
     StockKeyLabel = as.character(StockKeyLabel),
     Year = as.integer(as.character(Year)),
 
-    # Earlier years use 2021; all later years retain their own year.
-    RDBES_share_year = pmax(Year, 2021L)
+    RDBES_share_year = if_else(Year == 2026L, 2025L, Year)
   ) %>%
   left_join(
-    share_lookup,
+    share_lookup %>%
+      mutate(
+        StockKeyLabel = as.character(StockKeyLabel),
+        RDBES_share_year = as.integer(RDBES_share_year)
+      ),
     by = c("StockKeyLabel", "RDBES_share_year"),
     relationship = "many-to-one",
     na_matches = "never"
@@ -614,15 +625,38 @@ catch_current_adj <- catch_current_v3 %>%
   mutate(
     share_status = case_when(
       is.na(share) ~ "share unavailable",
-      Year < 2021L ~ "2021 share applied to earlier year",
+      Year == 2026L ~ "2025 share applied to 2026",
       TRUE ~ "same-year share"
     ),
 
-    Catches_ecoregion  = Catches  * share,
+    Catches_ecoregion  = Catches * share,
     Landings_ecoregion = Landings * share,
     Discards_ecoregion = Discards * share
   )
-head(catch_current_adj) %>% print(width = Inf)
 
+
+catch_current_adj %>%
+  filter(Year == 2026) %>%
+  select(
+    StockKeyLabel, Year, RDBES_share_year,
+    Catches, share, Catches_ecoregion,
+    share_status
+  ) %>%
+  print(n = 30)  
+head(catch_current_adj) %>% print(width = Inf)
+unique(catch_current_adj$Year)
+names(catch_current_adj)
+
+### check the stocks with unavailable shares
+stock_shaare_unavailable <- catch_current_adj %>%
+  filter(share_status == "share unavailable") %>%
+  select(StockKeyLabel, Year, RDBES_share_year, share, share_status,Catches,Landings, Discards, Catches_ecoregion,Landings_ecoregion,Discards_ecoregion) %>%
+  print(n = 40, width = Inf)
+
+write.csv(
+  stock_shaare_unavailable,
+  "output/stock_matching_rectangle_check/Bay_of_Biscay_and_the_Iberian_Coast/20261028_011823/stock_share_unavailable.csv",
+  row.names = FALSE
+)
 # source("data_05_stock_status.R")
 # clean_status <- format_sag_status_new(getStatusWebService("Bay of Biscay and the Iberian Coast", sid), sag)
